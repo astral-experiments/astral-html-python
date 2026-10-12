@@ -1,0 +1,23 @@
+[package]
+name = "astral-html-python"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "_astral_html"
+crate-type = ["cdylib"]
+
+[dependencies]
+astral-html = "=0.0.3"
+pyo3 = "0.29"
+self_cell = "1.2"
+selectors = "0.41"
+cssparser = "0.38"
+precomputed-hash = "0.1"
+stacker = "0.1.25"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
