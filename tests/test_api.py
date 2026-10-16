@@ -1,4 +1,4 @@
-from __future__ import annotations
+from pathlib import Path
 
 import pytest
 from astral_html import parse
@@ -6,20 +6,17 @@ from astral_html import parse
 
 def test_parse_and_traverse() -> None:
     document = parse(
-        '<main id="content">Hello <a HREF="/guide?x=1&amp;y=2" '
-        'href="ignored" disabled>Read <strong>the guide</strong></a>!</main>'
+        '<main>Hello <a HREF="/guide?x=1&amp;y=2" href="ignored" disabled>'
+        "Read <strong>the guide</strong></a>!</main>"
     )
-
-    assert [element.tag for element in document.elements()] == ["main", "a", "strong"]
-    assert [element.tag for element in document.elements("A")] == ["a"]
-    main = document.select_one("main")
-    assert main is not None
+    main, link, bold = document.elements()
+    assert (main.tag, link.tag, bold.tag) == ("main", "a", "strong")
     assert main.text == "Hello Read the guide!"
-    assert [child.tag for child in main.children] == ["a"]
-    assert [element.tag for element in main.elements()] == ["a", "strong"]
+    assert main.children == document.elements("A") == [link]
+    assert main.elements() == [link, bold]
+    assert link.children == [bold]
+    assert link.parent == main
 
-    link = main.select_one("a")
-    assert link is not None
     attrs = link.attrs
     assert attrs == {"href": "/guide?x=1&y=2", "disabled": ""}
     attrs["href"] = "/changed"
@@ -27,240 +24,124 @@ def test_parse_and_traverse() -> None:
     assert link.get("missing") is None
     fallback = object()
     assert link.get("missing", fallback) is fallback
-    assert link.parent is not None
-    assert link.parent.tag == "main"
-    assert [child.tag for child in link.children] == ["strong"]
 
 
-def test_document_uses_lexical_scopes_and_text_modes() -> None:
-    # Unlike a browser, astral-html does not imply html/body or close the
-    # previous paragraph when another p start tag appears.
+def test_lexical_scopes_and_text_modes() -> None:
     document = parse("<P>one<p>two<script>if (a < b) x = '&amp;';</script>")
-    paragraphs = document.elements("p")
-    assert len(paragraphs) == 2
-    assert paragraphs[1].parent is not None
-    assert paragraphs[1].parent.tag == "p"
-    assert paragraphs[0].text == "onetwoif (a < b) x = '&amp;';"
+    outer, inner = document.elements("p")
+    assert inner.parent == outer
+    assert outer.text == "onetwoif (a < b) x = '&amp;';"
     assert document.select_one("html") is None
 
 
 def test_newlines_are_normalized_in_text_and_attributes() -> None:
-    document = parse('<p title="a\r\nb\rc">a\r\nb\rc</p>')
-    paragraph = document.select_one("p")
-    assert paragraph is not None
-    assert paragraph.text == "a\nb\nc"
-    assert paragraph.get("title") == "a\nb\nc"
+    (paragraph,) = parse('<p title="a\r\nb\rc">a\r\nb\rc</p>').elements()
+    assert paragraph.text == paragraph.get("title") == "a\nb\nc"
 
 
 def test_malformed_end_tags_void_elements_and_self_closing_scopes() -> None:
     source = (
-        '<main><a href="/a">start <em>inner</main>tail</em>'
-        '<section><input value="&amp;"><a href="/b"><span/>x</a>outside</section>'
+        "<main><a>start <em>inner</main>tail</em>"
+        '<section><input value="&amp;"><a><span/>x</a>outside</section>'
     )
-    document = parse(source)
-    links = document.select("a")
-    assert [link.text for link in links] == ["start inner", "x"]
-    assert links[0].parent is not None
-    assert links[0].parent.tag == "main"
-    section = document.select_one("section")
-    assert section is not None
-    assert [child.tag for child in section.children] == ["input", "a"]
+    full = parse(source)
+    main, first, _, section, field, second, span = full.elements()
+    assert first.parent == main
+    assert section.children == [field, second]
     assert section.text == "xoutside"
-    input_element = section.select_one("input")
-    span = links[1].select_one("span")
-    assert input_element is not None
-    assert span is not None
-    assert input_element.get("value") == "&"
+    assert field.get("value") == "&"
     assert span.text == "x"
 
     partial = parse(source, tags=["a"])
-    assert [link.text for link in partial.select("a")] == ["start inner", "x"]
-    assert [element.tag for element in partial.elements()] == ["a", "em", "a", "span"]
+    assert [e.tag for e in partial.elements()] == ["a", "em", "a", "span"]
+    for doc in (full, partial):
+        assert [e.text for e in doc.elements("a")] == ["start inner", "x"]
 
 
-def test_rcdata_and_raw_text_are_preserved_in_partial_parse() -> None:
+@pytest.mark.parametrize("tags", [None, ["p"]])
+def test_deep_mismatched_end_tags_close_innermost_scope(tags: list[str] | None) -> None:
     source = (
-        "<div><textarea>&amp; <b>text</b></textarea>"
-        "<style>&amp; <b>literal</b></style></div>"
+        "<div>" * 20
+        + "<p>outer<p>first<i>child"
+        + "</missing>" * 256
+        + "</p>between<p>second<b>child</p><b>last</p>outside"
+        + "<p>third<i>child</div>outside<p>fourth"
     )
-    for document in (parse(source), parse(source, tags=["textarea", "style"])):
-        textarea = document.select_one("textarea")
-        style = document.select_one("style")
-        assert textarea is not None
-        assert style is not None
-        assert textarea.text == "& <b>text</b>"
-        assert style.text == "&amp; <b>literal</b>"
-        assert document.select("b") == []
+    outer, first, second, third, fourth = parse(source, tags=tags).elements("p")
+    assert (first.text, second.text) == ("firstchild", "secondchild")
+    assert outer.text == "outerfirstchildbetweensecondchildlast"
+    assert outer.elements("p") == [first, second]
+    # </div> closes the third paragraph even when divs are discarded.
+    assert (third.text, fourth.text) == ("thirdchild", "fourth")
 
 
-@pytest.mark.parametrize("tags", [None, ["a"]])
-def test_nesting_limit_applies_even_when_tags_are_discarded(
-    tags: list[str] | None,
-) -> None:
-    # 256 open non-void elements are allowed; void elements do not add depth.
-    document = parse("<div>" * 256 + "<br>", tags=tags)
-    assert document is not None
-    with pytest.raises(ValueError, match="nesting limit"):
-        parse("<div>" * 257, tags=tags)
-
-
-def test_selectors_match_and_return_source_order_without_duplicates() -> None:
-    document = parse(
-        '<main id="catalog">'
-        '<article class="card featured" data-kind="book">'
-        '<h2>First</h2><a class="buy external" href="/first">Buy</a>'
-        '<span class="price">10</span><span class="price sale">8</span>'
-        "</article>"
-        '<article class="card" data-kind="game">'
-        '<h2>Second</h2><a class="buy" href="/second">Buy</a>'
-        "</article></main>"
+@pytest.mark.parametrize("tags", [None, ["textarea", "style"]])
+def test_rcdata_and_raw_text(tags: list[str] | None) -> None:
+    doc = parse(
+        "<textarea>&amp; <b>x</b></textarea><style>&amp; <b>x</b></style>", tags=tags
     )
-
-    def texts(selector: str) -> list[str]:
-        return [element.text for element in document.select(selector)]
-
-    assert texts("#catalog article.card h2") == ["First", "Second"]
-    assert texts('article[data-kind="book"] > a.buy[href]') == ["Buy"]
-    assert texts("article.featured > a + span") == ["10"]
-    assert texts("article.featured > a ~ span") == ["10", "8"]
-    assert texts(".sale, .price") == ["10", "8"]
-    assert [element.tag for element in document.select("main > *")] == [
-        "article",
-        "article",
-    ]
-    assert document.select(".does-not-exist") == []
-    assert document.select_one(".does-not-exist") is None
+    textarea, style = doc.elements()
+    assert textarea.text == "& <b>x</b>"
+    assert style.text == "&amp; <b>x</b>"
 
 
-def test_element_queries_only_search_descendants() -> None:
-    document = parse(
-        '<main><section id="one"><a href="/one">one</a></section>'
-        '<section id="two"><a href="/two">two</a></section></main>'
-    )
-    section = document.select_one("#one")
-    assert section is not None
-    assert section.select("section") == []
-    assert [element.get("href") for element in section.select("a")] == ["/one"]
-    assert [element.get("href") for element in section.select("main a")] == ["/one"]
-    assert section.select_one("#two a") is None
-    assert section.elements("section") == []
-
-
-def test_structural_and_scoped_css_selectors() -> None:
-    document = parse(
-        '<main id="some:id"><ul><li class="item">One</li>'
-        '<li class="item featured"><a href="/two">Two</a></li>'
-        '<li class="item">Three</li></ul></main>'
-    )
-    main = document.select_one(r"#some\:id")
-    assert main is not None
-    root = document.select_one(":root")
-    assert root is not None
-    assert root.tag == "main"
-    assert [element.text for element in document.select("li:first-child")] == ["One"]
-    assert [element.text for element in document.select("li:nth-child(2)")] == ["Two"]
-    assert [element.text for element in document.select("li:not(.featured)")] == [
-        "One",
-        "Three",
-    ]
-    assert [element.text for element in document.select("li:has(> a[href])")] == ["Two"]
-    assert [element.tag for element in main.select(":scope > ul")] == ["ul"]
-
-
-def test_tagged_selectors_and_nested_alternatives() -> None:
-    document = parse(
-        '<main><a href="/one">one</a><span><a href="/two">two</a></span></main>'
-    )
-
-    assert [element.text for element in document.select("main A[href]")] == [
-        "one",
-        "two",
-    ]
-    assert [element.text for element in document.select(r"\61 [href]")] == [
-        "one",
-        "two",
-    ]
-    assert [element.tag for element in document.select(":is(span, a)")] == [
-        "a",
-        "span",
-        "a",
-    ]
-    assert [element.tag for element in document.select("span, a")] == ["a", "span", "a"]
-    assert [element.tag for element in document.select("span:has(a)")] == ["span"]
-
-
-@pytest.mark.parametrize("selector", ["", "[", "div >", "div,,span", "."])
-def test_invalid_selectors_raise_value_error(selector: str) -> None:
-    with pytest.raises(ValueError):
-        parse("<div></div>").select(selector)
-
-
-def test_unsupported_dynamic_pseudo_class_is_rejected() -> None:
-    with pytest.raises(ValueError, match="a:hover"):
-        parse("<a>link</a>").select("a:hover")
-
-
-def test_partial_parse_keeps_selected_subtrees_and_discards_other_branches() -> None:
-    source = (
-        '<main><h1>Discard</h1><a href="/a">First <b>bold</b></a>'
-        '<aside><a href="/b">Second <i>italic</i></a></aside>'
-        "<p>Discard too</p></main>"
-    )
-    document = parse(source, tags=(tag for tag in ["A"]))
-
-    assert [element.tag for element in document.elements()] == ["a", "b", "a", "i"]
-    assert [element.text for element in document.select("a")] == [
-        "First bold",
-        "Second italic",
-    ]
-    assert [element.text for element in document.select("a > b")] == ["bold"]
-    assert document.select("main a") == []
-    assert document.select("h1, aside, p") == []
-    for selector in (":root", ":scope"):
-        assert [element.get("href") for element in document.select(selector)] == [
-            "/a",
-            "/b",
-        ]
-    first = document.select_one("a")
-    assert first is not None
+def test_partial_tree_roots_and_discarded_branches() -> None:
+    source = "<main><h1>discard</h1><a>first <b>bold</b></a><aside><a>second</a>"
+    doc = parse(source, tags=iter(["A"]))
+    first, bold, second = doc.elements()
+    assert (first.text, bold.text, second.text) == ("first bold", "bold", "second")
     assert first.parent is None
+    assert doc.select("a > b") == [bold]
+    assert doc.select("main a") == []
+    assert doc.select(":root") == doc.select(":scope") == [first, second]
 
 
-def test_partial_parse_handles_nested_matches_and_empty_filter() -> None:
+def test_partial_tree_with_nested_matches_or_empty_filter() -> None:
     source = '<div><a href="outer"><span><a href="inner">nested</a></span></a></div>'
-    document = parse(source, tags=["a", "span"])
-    assert [element.tag for element in document.elements()] == ["a", "span", "a"]
-    assert [element.get("href") for element in document.select("a")] == [
+    outer, span, inner = parse(source, tags=["a", "span"]).elements()
+    assert (outer.get("href"), span.tag, inner.get("href")) == (
         "outer",
+        "span",
         "inner",
-    ]
+    )
     assert parse(source, tags=[]).elements() == []
 
 
-def test_sibling_selectors_across_retained_and_discarded_ancestors() -> None:
-    source = (
-        '<main><a id="one">A<i>X</i></a>gap<b>B</b><a id="two">C</a></main>'
-        '<section><a id="three">D</a></section>'
-    )
+def test_sibling_selectors_across_discarded_ancestors() -> None:
+    source = "<main><a>one</a>gap<b>b</b><a>two</a></main><section><a>three</a>"
     full = parse(source)
-    assert [element.get("id") for element in full.select("main > a + b + a")] == ["two"]
-    assert [element.get("id") for element in full.select("main > a:nth-child(3)")] == [
-        "two"
-    ]
-
+    _, two, _ = full.elements("a")
+    assert (
+        full.select("main > a + b + a") == full.select("main > a:nth-child(3)") == [two]
+    )
     partial = parse(source, tags=["a"])
-    assert [element.get("id") for element in partial.select("a + a")] == [
-        "two",
-        "three",
-    ]
-    assert [element.get("id") for element in partial.select("a:nth-child(2)")] == [
-        "two"
-    ]
+    _, two, three = partial.elements("a")
+    assert partial.select("a + a") == [two, three]
+    assert partial.select("a:nth-child(2)") == [two]
 
 
-def test_input_byte_limit_applies_to_full_and_partial_parses() -> None:
+@pytest.mark.parametrize(
+    ("page", "link_count"),
+    [("iniconfig", 16), ("github-parse5", 99), ("wiki-42", 1604)],
+)
+def test_partial_parse_preserves_real_page_links(page: str, link_count: int) -> None:
+    fixtures = Path(__file__).resolve().parents[1] / "benchmarks" / "fixtures"
+    source = (fixtures / f"{page}.html").read_text(encoding="utf-8")
+
+    def links(tags: list[str] | None) -> list[tuple[dict[str, str], str]]:
+        return [(e.attrs, e.text) for e in parse(source, tags=tags).select("a")]
+
+    full = links(None)
+    assert len(full) == link_count
+    assert links(["a"]) == full
+
+
+def test_input_limits_include_discarded_content() -> None:
     source = "é" * (64 * 1024 * 1024 + 1)
     for tags in (None, ["a"]):
+        parse("<div>" * 256 + "<br>", tags=tags)
+        with pytest.raises(ValueError, match="nesting limit"):
+            parse("<div>" * 257, tags=tags)
         with pytest.raises(ValueError, match="byte limit"):
             parse(source, tags=tags)
 

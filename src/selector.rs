@@ -1,8 +1,4 @@
-//! CSS selectors over the source-order tree.
-//!
-//! Parsing and matching are provided by Servo's `selectors` crate. The tree
-//! adapter exposes only the HTML context supported by the parser: there are no
-//! namespaces, shadow roots, or runtime browser state.
+//! Servo selector matching over the source-order tree.
 
 use std::{borrow::Cow, fmt, ops::Range};
 
@@ -10,6 +6,7 @@ use cssparser::ToCss;
 use precomputed_hash::PrecomputedHash;
 use selectors::attr::{
     AttrSelectorOperation, AttrSelectorOperator, CaseSensitivity, NamespaceConstraint,
+    SELECTOR_WHITESPACE,
 };
 use selectors::bloom::BloomFilter;
 use selectors::matching::{self, ElementSelectorFlags};
@@ -18,7 +15,7 @@ use selectors::parser::{
 };
 use selectors::{Element, OpaqueElement};
 
-use crate::tree::{Kind, Tree};
+use crate::tree::Tree;
 mod limits;
 use limits::MatchBudget;
 
@@ -29,10 +26,8 @@ const MAX_BLOCK_DEPTH: u8 = 32;
 const MAX_SELECTOR_BYTES: usize = 256 * 1024;
 
 /// Work around Servo 0.41 accepting functional :host even with parse_host off.
-/// Rename its function token to an unsupported name so Servo itself handles
-/// errors at the right forgiving-list boundary. A global rejection would break
-/// e.g. :not(:is(:host(div), .x)). Tokenization preserves strings, comments, and
-/// escaped identifiers; it also bounds nesting before Servo parses functions.
+/// Rename the function so Servo rejects it at the right forgiving-list boundary.
+/// This scan also bounds nesting before Servo parses selector functions.
 fn prepare_selector(css: &str) -> Result<Cow<'_, str>, String> {
     if !css.contains('(') {
         return Ok(Cow::Borrowed(css));
@@ -46,20 +41,16 @@ fn prepare_selector(css: &str) -> Result<Cow<'_, str>, String> {
             let Ok(token) = input.next_including_whitespace_and_comments() else {
                 return Ok(());
             };
-            let host = matches!(token, cssparser::Token::Function(name) if name.eq_ignore_ascii_case("host"));
-            let block = matches!(
-                token,
-                cssparser::Token::Function(_)
-                    | cssparser::Token::ParenthesisBlock
-                    | cssparser::Token::SquareBracketBlock
-                    | cssparser::Token::CurlyBracketBlock
-            );
+            use cssparser::Token::*;
+            let host = match token {
+                Function(name) => name.eq_ignore_ascii_case("host"),
+                ParenthesisBlock | SquareBracketBlock | CurlyBracketBlock => false,
+                _ => continue,
+            };
             if host {
                 hosts.push(start..input.position().byte_index());
             }
-            if block {
-                input.parse_nested_block(|input| scan(input, hosts))?;
-            }
+            input.parse_nested_block(|input| scan(input, hosts))?;
         }
     }
     let mut input = cssparser::Parser::new(css);
@@ -139,10 +130,8 @@ pub fn select(
     css: &str,
     first: bool,
 ) -> Result<Vec<usize>, String> {
-    // Python can call us on a worker with a very small native stack. Alongside
-    // bounded selector recursion, :has() recursively walks up to 256 HTML
-    // levels. Reserve headroom for both before parsing, matching, or dropping
-    // nested selectors. Normal callers with enough stack do not allocate.
+    // Small Python worker stacks need room for selector recursion and for
+    // :has() to descend up to 256 HTML levels. Keep parsing and drops here too.
     stacker::maybe_grow(1024 * 1024, 2 * 1024 * 1024, || {
         select_with_stack(tree, root, css, first)
     })
@@ -161,7 +150,7 @@ fn select_with_stack(
     }
     let prepared = prepare_selector(css)?;
     let mut parser = cssparser::Parser::new(&prepared);
-    let selectors = SelectorList::parse(&CssParser, &mut parser, ParseRelative::No)
+    let selectors = SelectorList::parse(&Css, &mut parser, ParseRelative::No)
         .map_err(|error| format!("invalid CSS selector {css:?}: {error:?}"))?;
     let selectors = selectors.slice();
     let mut shape = SelectorShape::default();
@@ -177,8 +166,8 @@ fn select_with_stack(
         }),
         _ => None,
     };
-    let (start, end) = root.map_or((0, tree.nodes.len()), |i| (i + 1, tree.nodes[i].end));
-    let budget = MatchBudget::new(end - start, shape);
+    let nodes = tree.descendants(root);
+    let budget = MatchBudget::new(nodes.len(), shape);
     let mut caches = matching::SelectorCaches::default();
     let mut context = matching::MatchingContext::new(
         matching::MatchingMode::Normal,
@@ -191,11 +180,8 @@ fn select_with_stack(
     context.scope_element = root.map(|i| OpaqueElement::new(&tree.nodes[i]));
     limits::with_match_limits(move || {
         let mut output = Vec::new();
-        for index in start..end {
-            let Kind::Element { name, .. } = &tree.nodes[index].kind else {
-                continue;
-            };
-            if tag.is_some_and(|tag| tag != name.as_ref()) {
+        for (index, name) in tree.elements_in(nodes) {
+            if tag.is_some_and(|tag| tag != name) {
                 continue;
             }
             budget.start_element(context.selector_caches);
@@ -218,9 +204,9 @@ fn select_with_stack(
     })
 }
 
-#[derive(Clone, Copy, Debug)]
-struct CssParser;
-impl<'i> parser::Parser<'i> for CssParser {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Css;
+impl<'i> parser::Parser<'i> for Css {
     type Impl = Css;
     type Error = SelectorParseErrorKind;
     fn parse_is_and_where(&self) -> bool {
@@ -234,8 +220,6 @@ impl<'i> parser::Parser<'i> for CssParser {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Css;
 impl parser::SelectorImpl for Css {
     type AttrValue = CssString;
     type Identifier = CssName;
@@ -244,8 +228,8 @@ impl parser::SelectorImpl for Css {
     type NamespaceUrl = CssName;
     type BorrowedNamespaceUrl = CssName;
     type BorrowedLocalName = CssName;
-    type NonTSPseudoClass = NonTSPseudoClass;
-    type PseudoElement = PseudoElement;
+    type NonTSPseudoClass = UnsupportedPseudo;
+    type PseudoElement = UnsupportedPseudo;
     type ExtraMatchingData<'a> = ();
 }
 
@@ -299,11 +283,11 @@ impl ToCss for CssString {
     }
 }
 
-// Static markup has no browser state. Unsupported pseudo-classes and
-// pseudo-elements are parse errors rather than silent non-matches.
+// Unsupported pseudo-elements and browser-state pseudo-classes are parse errors.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum NonTSPseudoClass {}
-impl parser::NonTSPseudoClass for NonTSPseudoClass {
+enum UnsupportedPseudo {}
+impl parser::PseudoElement for UnsupportedPseudo {}
+impl parser::NonTSPseudoClass for UnsupportedPseudo {
     fn is_active_or_hover(&self) -> bool {
         false
     }
@@ -311,16 +295,7 @@ impl parser::NonTSPseudoClass for NonTSPseudoClass {
         false
     }
 }
-impl ToCss for NonTSPseudoClass {
-    fn to_css<W: fmt::Write>(&self, _dest: &mut W) -> fmt::Result {
-        match *self {}
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PseudoElement {}
-impl parser::PseudoElement for PseudoElement {}
-impl ToCss for PseudoElement {
+impl ToCss for UnsupportedPseudo {
     fn to_css<W: fmt::Write>(&self, _dest: &mut W) -> fmt::Result {
         match *self {}
     }
@@ -339,20 +314,16 @@ impl fmt::Debug for ElementRef<'_, '_> {
 }
 impl<'tree, 'source> ElementRef<'tree, 'source> {
     fn name(&self) -> &str {
-        match &self.tree.nodes[self.index].kind {
-            Kind::Element { name, .. } => name,
-            Kind::Text(_) => unreachable!("selector references must be elements"),
-        }
+        self.tree.nodes[self.index]
+            .element_name()
+            .expect("expected an element")
     }
     fn attribute(&self, name: &str) -> Option<&str> {
         self.budget.visit();
-        match &self.tree.nodes[self.index].kind {
-            Kind::Element { attrs, .. } => self.tree.attributes[attrs.clone()]
-                .iter()
-                .find(|attribute| attribute.name == name)
-                .map(|attribute| attribute.value()),
-            Kind::Text(_) => unreachable!("selector references must be elements"),
-        }
+        self.tree
+            .attributes(self.index)
+            .find(|(key, _)| *key == name)
+            .map(|(_, value)| value)
     }
     fn at(&self, index: usize) -> Self {
         self.budget.visit();
@@ -391,17 +362,14 @@ impl Element for ElementRef<'_, '_> {
             .map(|index| self.at(index))
     }
     fn first_element_child(&self) -> Option<Self> {
-        let mut index = self.index + 1;
-        let end = self.tree.nodes[self.index].end;
-        while index < end {
-            let node = &self.tree.nodes[index];
-            if matches!(node.kind, Kind::Element { .. }) {
-                return Some(self.at(index));
-            }
-            self.budget.visit();
-            index = node.end;
-        }
-        None
+        let children = self
+            .tree
+            .children(self.index)
+            .inspect(|_| self.budget.visit());
+        self.tree
+            .elements_in(children)
+            .next()
+            .map(|(index, _)| Self { index, ..*self })
     }
     fn is_html_element_in_html_document(&self) -> bool {
         true
@@ -446,17 +414,17 @@ impl Element for ElementRef<'_, '_> {
     }
     fn match_non_ts_pseudo_class(
         &self,
-        _pseudo: &NonTSPseudoClass,
+        pseudo: &UnsupportedPseudo,
         _context: &mut matching::MatchingContext<'_, Css>,
     ) -> bool {
-        false
+        match *pseudo {}
     }
     fn match_pseudo_element(
         &self,
-        _pseudo: &PseudoElement,
+        pseudo: &UnsupportedPseudo,
         _context: &mut matching::MatchingContext<'_, Css>,
     ) -> bool {
-        false
+        match *pseudo {}
     }
     fn apply_selector_flags(&self, _flags: ElementSelectorFlags) {}
     fn is_link(&self) -> bool {
@@ -472,7 +440,7 @@ impl Element for ElementRef<'_, '_> {
     fn has_class(&self, class: &CssName, case: CaseSensitivity) -> bool {
         self.attribute("class").is_some_and(|value| {
             value
-                .split([' ', '\t', '\n', '\r', '\u{000c}'])
+                .split(SELECTOR_WHITESPACE)
                 .any(|part| case.eq(class.value.as_bytes(), part.as_bytes()))
         })
     }

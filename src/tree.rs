@@ -3,11 +3,11 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
-use astral_html::{Attribute, Limits, Reader, Token};
+use astral_html::{Limits, Reader, Token};
 
 pub struct Tree<'a> {
     pub nodes: Vec<Node<'a>>,
-    pub attributes: Vec<Attribute<'a>>,
+    attributes: Vec<(Cow<'a, str>, Cow<'a, str>)>,
 }
 
 pub struct Node<'a> {
@@ -26,6 +26,15 @@ pub enum Kind<'a> {
     Text(Cow<'a, str>),
 }
 
+impl Node<'_> {
+    pub fn element_name(&self) -> Option<&str> {
+        match &self.kind {
+            Kind::Element { name, .. } => Some(name),
+            Kind::Text(_) => None,
+        }
+    }
+}
+
 struct Open<'a> {
     name: Cow<'a, str>,
     retained: Option<usize>,
@@ -35,31 +44,34 @@ struct Open<'a> {
 }
 
 impl<'a> Tree<'a> {
-    pub fn parse(source: &'a str, tags: Option<&HashSet<String>>) -> Result<Self, &'static str> {
+    /// Full trees borrow strings from their source. Partial trees copy retained strings here.
+    pub fn parse<'input>(
+        source: &'input str,
+        tags: Option<&HashSet<String>>,
+        store: impl Fn(Cow<'input, str>) -> Cow<'a, str>,
+    ) -> Result<Self, &'static str> {
         let limits = Limits::default();
         let mut tree = Self {
             nodes: Vec::with_capacity(16),
             attributes: Vec::new(),
         };
-        let mut stack: Vec<Open<'a>> = Vec::new();
+        let mut stack: Vec<Open<'input>> = Vec::new();
         // Like astral_html::Document, index a deep stack only when an end tag
         // mismatches the top. Repeated unmatched tags then need one lookup each.
-        let mut open_names: Option<HashMap<Cow<'a, str>, usize>> = None;
+        let mut open_names: Option<HashMap<Cow<'input, str>, usize>> = None;
         // Open elements track their last retained child; roots share one list.
         let mut last_root = None;
         for token in Reader::new(source) {
+            let parent = stack.last().and_then(|entry| entry.retained);
             match token {
-                Token::StartTag(mut tag) => {
+                Token::StartTag(tag) => {
                     let void = is_void(&tag.name);
                     if !void && stack.len() >= limits.max_depth {
                         return Err("HTML document exceeds the nesting limit");
                     }
-                    let parent = stack.last().and_then(|entry| entry.retained);
-                    let keep = tags.is_none()
-                        || parent.is_some()
-                        || tags.is_some_and(|tags| tags.contains(tag.name.as_ref()));
-                    let mut index = None;
-                    if keep {
+                    let keep = parent.is_some()
+                        || tags.is_none_or(|tags| tags.contains(tag.name.as_ref()));
+                    let index = if keep {
                         if tree.nodes.len() >= limits.max_nodes {
                             return Err("HTML document exceeds the node limit");
                         }
@@ -68,16 +80,19 @@ impl<'a> Tree<'a> {
                             Some(entry) if entry.retained.is_some() => &mut entry.last_child,
                             _ => &mut last_root,
                         };
-                        let prev_sibling = *previous;
-                        *previous = Some(i);
+                        let prev_sibling = previous.replace(i);
                         if let Some(prev) = prev_sibling {
                             tree.nodes[prev].next_sibling = Some(i);
                         }
                         let start = tree.attributes.len();
-                        tree.attributes.append(&mut tag.attributes);
+                        tree.attributes.extend(
+                            tag.attributes
+                                .into_iter()
+                                .map(|attr| (store(attr.name), store(attr.value))),
+                        );
                         tree.nodes.push(Node {
                             kind: Kind::Element {
-                                name: tag.name.clone(),
+                                name: store(tag.name.clone()),
                                 attrs: start..tree.attributes.len(),
                             },
                             parent,
@@ -85,8 +100,10 @@ impl<'a> Tree<'a> {
                             prev_sibling,
                             next_sibling: None,
                         });
-                        index = Some(i);
-                    }
+                        Some(i)
+                    } else {
+                        None
+                    };
                     if !void {
                         let previous = open_names
                             .as_mut()
@@ -134,21 +151,18 @@ impl<'a> Tree<'a> {
                         }
                     }
                 }
-                Token::Text(text) if !text.is_empty() => {
-                    let parent = stack.last().and_then(|entry| entry.retained);
-                    if tags.is_none() || parent.is_some() {
-                        if tree.nodes.len() >= limits.max_nodes {
-                            return Err("HTML document exceeds the node limit");
-                        }
-                        let i = tree.nodes.len();
-                        tree.nodes.push(Node {
-                            kind: Kind::Text(text),
-                            parent,
-                            end: i + 1,
-                            prev_sibling: None,
-                            next_sibling: None,
-                        });
+                Token::Text(text) if !text.is_empty() && (tags.is_none() || parent.is_some()) => {
+                    let i = tree.nodes.len();
+                    if i >= limits.max_nodes {
+                        return Err("HTML document exceeds the node limit");
                     }
+                    tree.nodes.push(Node {
+                        kind: Kind::Text(store(text)),
+                        parent,
+                        end: i + 1,
+                        prev_sibling: None,
+                        next_sibling: None,
+                    });
                 }
                 _ => {}
             }
@@ -162,51 +176,34 @@ impl<'a> Tree<'a> {
         Ok(tree)
     }
 
-    /// Detach selected content from the original source, which can then be dropped.
-    pub fn into_owned(self) -> Tree<'static> {
-        Tree {
-            nodes: self
-                .nodes
-                .into_iter()
-                .map(|node| Node {
-                    kind: match node.kind {
-                        Kind::Element { name, attrs } => Kind::Element {
-                            name: Cow::Owned(name.into_owned()),
-                            attrs,
-                        },
-                        Kind::Text(text) => Kind::Text(Cow::Owned(text.into_owned())),
-                    },
-                    parent: node.parent,
-                    end: node.end,
-                    prev_sibling: node.prev_sibling,
-                    next_sibling: node.next_sibling,
-                })
-                .collect(),
-            attributes: self
-                .attributes
-                .into_iter()
-                .map(|attr| Attribute {
-                    name: Cow::Owned(attr.name.into_owned()),
-                    value: Cow::Owned(attr.value.into_owned()),
-                    // Raw values are not exposed by this interface.
-                    raw_value: None,
-                })
-                .collect(),
-        }
+    pub fn descendants(&self, root: Option<usize>) -> Range<usize> {
+        root.map_or(0..self.nodes.len(), |i| i + 1..self.nodes[i].end)
     }
 
-    pub fn element_name(&self, index: usize) -> &str {
-        match &self.nodes[index].kind {
-            Kind::Element { name, .. } => name,
-            Kind::Text(_) => unreachable!(),
-        }
+    pub fn elements_in(
+        &self,
+        nodes: impl Iterator<Item = usize>,
+    ) -> impl Iterator<Item = (usize, &str)> {
+        nodes.filter_map(|i| self.nodes[i].element_name().map(|name| (i, name)))
     }
 
-    pub fn element_attributes(&self, index: usize) -> &[Attribute<'a>] {
-        match &self.nodes[index].kind {
-            Kind::Element { attrs, .. } => &self.attributes[attrs.clone()],
-            Kind::Text(_) => unreachable!(),
-        }
+    /// Direct children, including text nodes.
+    pub fn children(&self, index: usize) -> impl Iterator<Item = usize> {
+        let mut nodes = self.descendants(Some(index));
+        std::iter::from_fn(move || {
+            let i = nodes.next()?;
+            nodes.start = self.nodes[i].end;
+            Some(i)
+        })
+    }
+
+    pub fn attributes(&self, index: usize) -> impl Iterator<Item = (&str, &str)> {
+        let Kind::Element { attrs, .. } = &self.nodes[index].kind else {
+            unreachable!("expected an element")
+        };
+        self.attributes[attrs.clone()]
+            .iter()
+            .map(|(name, value)| (name.as_ref(), value.as_ref()))
     }
 }
 

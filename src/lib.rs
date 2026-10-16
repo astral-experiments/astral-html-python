@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
@@ -5,7 +6,7 @@ use std::sync::Arc;
 use astral_html::Limits;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyDict, PyString};
+use pyo3::types::{IntoPyDict, PyAny, PyDict, PyString};
 use self_cell::self_cell;
 
 mod selector;
@@ -26,10 +27,17 @@ enum Storage {
 }
 
 impl Storage {
-    fn with_tree<R>(&self, f: impl FnOnce(&Tree<'_>) -> R) -> R {
+    fn tree(&self) -> &Tree<'_> {
         match self {
-            Self::Full(parsed) => f(parsed.borrow_dependent()),
-            Self::Partial(tree) => f(tree),
+            Self::Full(parsed) => parsed.borrow_dependent(),
+            Self::Partial(tree) => tree,
+        }
+    }
+
+    fn element(self: &Arc<Self>, index: usize) -> Element {
+        Element {
+            storage: self.clone(),
+            index,
         }
     }
 }
@@ -46,19 +54,11 @@ struct Element {
 }
 
 fn elements(storage: &Arc<Storage>, root: Option<usize>, tag: Option<&str>) -> Vec<Element> {
-    storage.with_tree(|tree| {
-        let (start, end) = root.map_or((0, tree.nodes.len()), |i| (i + 1, tree.nodes[i].end));
-        (start..end)
-            .filter(|&i| match &tree.nodes[i].kind {
-                Kind::Element { name, .. } => tag.is_none_or(|tag| name.eq_ignore_ascii_case(tag)),
-                _ => false,
-            })
-            .map(|index| Element {
-                storage: Arc::clone(storage),
-                index,
-            })
-            .collect()
-    })
+    let tree = storage.tree();
+    tree.elements_in(tree.descendants(root))
+        .filter(|(_, name)| tag.is_none_or(|tag| name.eq_ignore_ascii_case(tag)))
+        .map(|(i, _)| storage.element(i))
+        .collect()
 }
 
 fn select(
@@ -68,19 +68,10 @@ fn select(
     css: &str,
     first: bool,
 ) -> PyResult<Vec<Element>> {
-    // Matching uses only immutable Rust data. Keep Python conversion (including
-    // errors) outside the detached closure; borrowed input remains alive until
-    // this synchronous call returns.
     let indices = py
-        .detach(|| storage.with_tree(|tree| selector::select(tree, root, css, first)))
+        .detach(|| selector::select(storage.tree(), root, css, first))
         .map_err(PyValueError::new_err)?;
-    Ok(indices
-        .into_iter()
-        .map(|index| Element {
-            storage: Arc::clone(storage),
-            index,
-        })
-        .collect())
+    Ok(indices.into_iter().map(|i| storage.element(i)).collect())
 }
 
 #[pymethods]
@@ -107,77 +98,55 @@ impl Document {
 #[pymethods]
 impl Element {
     #[getter]
-    fn tag(&self) -> String {
-        self.storage
-            .with_tree(|tree| tree.element_name(self.index).to_owned())
+    fn tag(&self) -> &str {
+        self.storage.tree().nodes[self.index]
+            .element_name()
+            .expect("expected an element")
     }
 
     #[getter]
-    fn attrs(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        let dict = PyDict::new(py);
-        self.storage.with_tree(|tree| {
-            for attr in tree.element_attributes(self.index) {
-                dict.set_item(attr.name.as_ref(), attr.value.as_ref())?;
-            }
-            Ok::<_, PyErr>(())
-        })?;
-        Ok(dict.unbind())
+    fn attrs<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        self.storage.tree().attributes(self.index).into_py_dict(py)
     }
 
     #[pyo3(signature = (name, default=None))]
     fn get(&self, py: Python<'_>, name: &str, default: Option<Py<PyAny>>) -> Py<PyAny> {
-        self.storage.with_tree(|tree| {
-            match tree
-                .element_attributes(self.index)
-                .iter()
-                .find(|attr| attr.name.eq_ignore_ascii_case(name))
-            {
-                Some(attr) => PyString::new(py, &attr.value).into_any().unbind(),
-                None => default.unwrap_or_else(|| py.None()),
-            }
-        })
+        match self
+            .storage
+            .tree()
+            .attributes(self.index)
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        {
+            Some((_, value)) => PyString::new(py, value).into_any().unbind(),
+            None => default.unwrap_or_else(|| py.None()),
+        }
     }
 
     #[getter]
     fn text(&self) -> String {
-        self.storage.with_tree(|tree| {
-            let mut text = String::new();
-            for node in &tree.nodes[self.index + 1..tree.nodes[self.index].end] {
-                if let Kind::Text(segment) = &node.kind {
-                    text.push_str(segment);
-                }
+        let tree = self.storage.tree();
+        let mut text = String::new();
+        for node in &tree.nodes[tree.descendants(Some(self.index))] {
+            if let Kind::Text(segment) = &node.kind {
+                text.push_str(segment);
             }
-            text
-        })
+        }
+        text
     }
 
     #[getter]
     fn parent(&self) -> Option<Self> {
-        self.storage
-            .with_tree(|tree| tree.nodes[self.index].parent)
-            .map(|index| Self {
-                storage: Arc::clone(&self.storage),
-                index,
-            })
+        self.storage.tree().nodes[self.index]
+            .parent
+            .map(|i| self.storage.element(i))
     }
 
     #[getter]
     fn children(&self) -> Vec<Self> {
-        self.storage.with_tree(|tree| {
-            let mut result = Vec::new();
-            let mut index = self.index + 1;
-            while index < tree.nodes[self.index].end {
-                let node = &tree.nodes[index];
-                if matches!(node.kind, Kind::Element { .. }) {
-                    result.push(Self {
-                        storage: Arc::clone(&self.storage),
-                        index,
-                    });
-                }
-                index = node.end;
-            }
-            result
-        })
+        let tree = self.storage.tree();
+        tree.elements_in(tree.children(self.index))
+            .map(|(i, _)| self.storage.element(i))
+            .collect()
     }
 
     #[pyo3(signature = (tag=None))]
@@ -203,7 +172,6 @@ impl Element {
         Arc::ptr_eq(&self.storage, &other.storage) && self.index == other.index
     }
 
-    // Let Python try the other operand's comparison for unrelated types.
     fn __ne__(&self, other: &Self) -> bool {
         !self.__eq__(other)
     }
@@ -242,15 +210,14 @@ fn parse(py: Python<'_>, html: &str, tags: Option<Bound<'_, PyAny>>) -> PyResult
         return Err(PyValueError::new_err("HTML input exceeds the byte limit"));
     }
     let storage = py
-        .detach(move || -> Result<Storage, &'static str> {
-            match tags {
-                Some(tags) => Ok(Storage::Partial(
-                    Tree::parse(html, Some(&tags))?.into_owned(),
-                )),
-                None => Ok(Storage::Full(Parsed::try_new(html.to_owned(), |source| {
-                    Tree::parse(source, None)
-                })?)),
+        .detach(move || match tags {
+            Some(tags) => {
+                Tree::parse(html, Some(&tags), |s| Cow::Owned(s.into_owned())).map(Storage::Partial)
             }
+            None => Parsed::try_new(html.to_owned(), |source| {
+                Tree::parse(source, None, std::convert::identity)
+            })
+            .map(Storage::Full),
         })
         .map_err(PyValueError::new_err)?;
     Ok(Document {

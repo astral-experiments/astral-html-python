@@ -7,8 +7,7 @@ use selectors::matching::SelectorCaches;
 
 use super::SelectorShape;
 
-// Cancelling a match must unwind Rust frames, including stacker's extra stack.
-// The release wheels use Rust's default unwind strategy.
+// Cancellation must unwind Rust frames, including stacker's extra stack.
 #[cfg(panic = "abort")]
 compile_error!("astral-html selector limits require the Rust panic=unwind strategy");
 
@@ -27,11 +26,9 @@ pub(super) struct MatchBudget {
 impl MatchBudget {
     pub(super) fn new(nodes: usize, shape: SelectorShape) -> Self {
         Self {
-            // Allow ordinary linear queries to scale with the search range, and
-            // leave room for complex queries over small subtrees.
+            // Budget linear scans and allow some complex queries on small trees.
             work_left: Cell::new(nodes.saturating_mul(WORK_PER_NODE).max(MIN_WORK_BUDGET)),
-            // Matching a wide list of simple selectors may make no Element
-            // calls. Account for its size, leaving common selectors unweighted.
+            // A wide list of simple selectors can match without any Element calls.
             visit_cost: shape.components.div_ceil(COMPONENTS_PER_WORK_UNIT).max(1),
             relative_cache_uses: shape.has_relative.then(Cell::default),
         }
@@ -47,10 +44,8 @@ impl MatchBudget {
 
     #[inline]
     pub(super) fn start_element(&self, caches: &mut SelectorCaches) {
-        // Servo 0.41 can retain a 4 KiB Bloom filter for every leaf tested
-        // against two :has() alternatives. Those filters and relative match
-        // results are optional caches: dropping both between candidates is
-        // exact, and avoids disturbing the separate positional-selector cache.
+        // Servo 0.41 can cache a 4 KiB Bloom filter per leaf for two :has()
+        // alternatives. Clear only the relative caches between candidates.
         if let Some(uses) = &self.relative_cache_uses
             && uses.get() >= RELATIVE_CACHE_BATCH
         {
@@ -63,10 +58,8 @@ impl MatchBudget {
     #[inline]
     pub(super) fn record_identity(&self) {
         self.visit();
-        // Both relative cache insertions require Element::opaque(). Count
-        // identity requests directly, since a single candidate (for example,
-        // a :has() left of a sibling combinator) can populate many entries
-        // before we regain access to the caches in start_element.
+        // Both relative caches call opaque(). A single match can fill them
+        // before we can clear them in start_element.
         if let Some(uses) = &self.relative_cache_uses {
             let n = uses.get();
             if n >= RELATIVE_CACHE_LIMIT {
@@ -81,16 +74,13 @@ struct MatchLimit(&'static str);
 
 #[cold]
 fn cancel(message: &'static str) -> ! {
-    // Element traversal cannot return an error to Servo. Unwind to our query
-    // boundary without invoking the process panic hook. Returning a fake end
-    // of the tree instead would corrupt matching and positional caches.
+    // Servo traversal cannot return an error. Unwind without running the panic
+    // hook; inventing a traversal result would corrupt matches and caches.
     panic::resume_unwind(Box::new(MatchLimit(message)))
 }
 
 pub(super) fn with_match_limits<T>(query: impl FnOnce() -> T) -> Result<T, String> {
-    // The closure owns the matching context; cancellation discards all results
-    // and caches. Nothing is shared across queries except the immutable tree.
-    // In particular this boundary is inside stacker and outside any Python FFI.
+    // Discard results and caches inside stacker's stack, outside Python FFI.
     panic::catch_unwind(panic::AssertUnwindSafe(query)).map_err(|payload| {
         payload
             .downcast::<MatchLimit>()

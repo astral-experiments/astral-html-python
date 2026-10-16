@@ -1,304 +1,152 @@
-"""Benchmark real scraping tasks with equivalent output across parsers.
-
-Run from the repository root with ``uv run --group benchmark python benchmarks/run.py``.
-"""
-
-from __future__ import annotations
+"""Compare scraping time, or retained RSS with --memory (Linux/glibc)."""
 
 import argparse
+import ctypes
 import gc
-import json
 import math
+import multiprocessing
 import platform
 import random
-import statistics
-import subprocess
-import sys
-import time
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections import defaultdict
 from functools import partial
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from statistics import mean, stdev
+from timeit import Timer
 
 import astral_html
 from bs4 import BeautifulSoup
 from lxml import html
 from selectolax.lexbor import LexborHTMLParser
 
-# Python may use safe-path mode, which excludes the script directory.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from formatting import format_measurement
-
-FIXTURES = Path(__file__).resolve().parent / "fixtures"
-
-
-@dataclass(frozen=True)
-class Fixture:
-    name: str
-    filename: str
-    filtered_selector: str
+FIXTURES = {
+    "pypi": ("iniconfig.html", "body > a[data-requires-python]"),
+    "github": ("github-parse5.html", "table.files tr > td.content a[href]"),
+    "wikipedia": ("wiki-42.html", '#mw-content-text > p a[href^="/wiki/"]'),
+}
 
 
-FIXTURE_SET = (
-    Fixture("PyPI", "iniconfig.html", "body > a[data-requires-python]"),
-    Fixture("GitHub", "github-parse5.html", "table.files tr > td.content a[href]"),
-    Fixture("Wikipedia", "wiki-42.html", '#mw-content-text > p a[href^="/wiki/"]'),
-)
+def lexbor_links(doc, css):
+    return [(node.attrs.get("href"), node.text()) for node in doc.css(css)]
 
 
-@dataclass(frozen=True)
-class Parser:
-    name: str
-    parse: Callable[[str], Any]
-    extract: Callable[[Any, str], list[tuple[str | None, str]]]
+def astral_links(doc, css):
+    return [(node.get("href"), node.text) for node in doc.select(css)]
 
 
-def astral_extract(document: Any, selector: str) -> list[tuple[str | None, str]]:
-    return [
-        (element.get("href"), element.text) for element in document.select(selector)
-    ]
+def lxml_links(doc, css):
+    return [(node.get("href"), node.text_content()) for node in doc.cssselect(css)]
 
 
-def lexbor_extract(document: Any, selector: str) -> list[tuple[str | None, str]]:
-    return [
-        (
-            element.attrs.get("href"),
-            element.text(deep=True, separator="", strip=False),
-        )
-        for element in document.css(selector)
-    ]
+def soup_links(doc, css):
+    return [(node.get("href"), node.get_text()) for node in doc.select(css)]
 
 
-def lxml_extract(document: Any, selector: str) -> list[tuple[str | None, str]]:
-    return [
-        (element.get("href"), element.text_content())
-        for element in document.cssselect(selector)
-    ]
+PARSERS = [
+    ("astral-html", astral_html.parse, astral_links),
+    ("selectolax (Lexbor)", LexborHTMLParser, lexbor_links),
+    ("lxml", html.fromstring, lxml_links),
+    ("Beautiful Soup", partial(BeautifulSoup, features="lxml"), soup_links),
+    ("astral-html partial", partial(astral_html.parse, tags=["a"]), astral_links),
+]
 
 
-def soup_extract(document: Any, selector: str) -> list[tuple[str | None, str]]:
-    return [
-        (element.get("href"), element.get_text())
-        for element in document.select(selector)
-    ]
+def workloads(source, selector):
+    queries = {"links": "a[href]", "filtered": selector}
+    reference = LexborHTMLParser(source)
+    expected = {css: lexbor_links(reference, css) for css in queries.values()}
+    for name, parse, links in PARSERS:
+        read = partial(parse, source)
+        doc = read()
+        for label, css in queries.items():
+            if css == selector:
+                if name == "astral-html partial":
+                    continue  # The filtered selector needs ancestors we discarded.
+                yield f"{name} | parse", read
+                yield f"{name} | filtered, existing tree", partial(links, doc, css)
+            if not expected[css] or links(doc, css) != expected[css]:
+                raise ValueError(f"{name}: {css!r} links differ from Lexbor's")
+            yield (
+                f"{name} | parse + {label}",
+                lambda read=read, links=links, css=css: links(read(), css),
+            )
 
 
-PARSERS = (
-    Parser("astral-html", astral_html.parse, astral_extract),
-    Parser("selectolax (Lexbor)", LexborHTMLParser, lexbor_extract),
-    Parser("lxml", html.fromstring, lxml_extract),
-    Parser(
-        "Beautiful Soup (lxml)",
-        lambda source: BeautifulSoup(source, "lxml"),
-        soup_extract,
-    ),
-)
+def timings(source, selector, min_ms, seed):
+    jobs = list(workloads(source, selector))  # Check all outputs before timing.
+    times = dict.fromkeys((label for label, _ in jobs), 0.0)
+    random.Random(seed).shuffle(jobs)
+    for label, run in jobs:
+        # Timer normally disables GC. Keep it enabled, including for cyclic trees.
+        timer = Timer(run, setup=gc.enable)
+        count = 1
+        while timer.timeit(count) < min_ms / 1000:
+            count *= 2
+        gc.collect()
+        times[label] = timer.timeit(count) * 1e6 / count
+    return times
 
 
-def measure_batch(operation: Callable[[], object], min_sample_time: float) -> float:
-    """Measure a calibrated batch in microseconds per operation."""
-    # A short warmup also amortizes one-time selector/parser initialization.
-    for _ in range(3):
-        operation()
-
-    iterations = 1
-    while True:
-        start = time.perf_counter_ns()
-        for _ in range(iterations):
-            operation()
-        elapsed = (time.perf_counter_ns() - start) / 1e9
-        if elapsed >= min_sample_time:
-            break
-        iterations *= 2
-
-    # Keep GC enabled during the sample, and start each batch in a comparable state.
+def rss_kib():
     gc.collect()
-    start = time.perf_counter_ns()
-    for _ in range(iterations):
-        operation()
-    return (time.perf_counter_ns() - start) / iterations / 1_000
+    ctypes.CDLL(None).malloc_trim(0)
+    status = Path("/proc/self/status").read_text()
+    return int(status.split("VmRSS:")[1].split()[0])
 
 
-def check_equal(label: str, expected: object, actual: object) -> None:
-    if actual != expected:
-        raise ValueError(
-            f"{label} did not return the reference extraction; refusing to benchmark"
-        )
+def memory(source, mode):
+    parse = partial(astral_html.parse, tags=["a"] if mode == "partial" else None)
+    parse(source)  # Exclude parser initialization and the input from the baseline.
+    before = rss_kib()
+    documents = [parse(source) for _ in range(64)]
+    return {f"astral-html | {mode}": (rss_kib() - before) / len(documents)}
 
 
-def operations(
-    parser: Parser, source: str, selector: str, document: Any
-) -> tuple[tuple[str, Callable[[], object]], ...]:
-    def parse_op() -> object:
-        return parser.parse(source)
-
-    def links_op() -> object:
-        return parser.extract(parser.parse(source), "a[href]")
-
-    def filtered_op() -> object:
-        return parser.extract(parser.parse(source), selector)
-
-    def query_op() -> object:
-        return parser.extract(document, selector)
-
-    return (
-        ("Parse", parse_op),
-        ("Parse + links", links_op),
-        ("Parse + filtered CSS", filtered_op),
-        ("Filtered CSS on existing tree", query_op),
+def main():
+    cli = argparse.ArgumentParser(description=__doc__)
+    cli.add_argument("--fixture", choices=FIXTURES, action="append")
+    cli.add_argument(
+        "--samples", type=int, help="fresh processes (default 20, or 7 for RSS)"
     )
+    cli.add_argument("--memory", action="store_true", help="RSS per retained document")
+    cli.add_argument("--min-sample-ms", type=float, default=20)
+    args = cli.parse_args()
+    n = (7 if args.memory else 20) if args.samples is None else args.samples
+    if n < 2 or not math.isfinite(args.min_sample_ms) or args.min_sample_ms <= 0:
+        cli.error("need at least two samples and a positive, finite batch time")
 
-
-def partial_links(source: str) -> object:
-    return astral_extract(astral_html.parse(source, tags=["a"]), "a[href]")
-
-
-def sample(
-    fixture: Fixture, min_sample_time: float, seed: int
-) -> list[tuple[str, str, float]]:
-    """Measure every workload once in this process, in a shuffled order."""
-    source = (FIXTURES / fixture.filename).read_bytes().decode("utf-8")
-    selectors = ("a[href]", fixture.filtered_selector)
-    documents = {parser.name: parser.parse(source) for parser in PARSERS}
-    lexbor = PARSERS[1]
-    expected = {
-        selector: lexbor.extract(documents[lexbor.name], selector)
-        for selector in selectors
-    }
-    for parser in PARSERS:
-        for selector in selectors:
-            check_equal(
-                f"{fixture.name}, {parser.name}, {selector}",
-                expected[selector],
-                parser.extract(documents[parser.name], selector),
-            )
-    check_equal(
-        f"{fixture.name}, partial parse",
-        expected["a[href]"],
-        astral_extract(astral_html.parse(source, tags=["a"]), "a[href]"),
-    )
-
-    cases = [
-        (label, parser.name, operation)
-        for parser in PARSERS
-        for label, operation in operations(
-            parser, source, fixture.filtered_selector, documents[parser.name]
-        )
+    packages = [
+        "astral-html-python",
+        "selectolax",
+        "lxml",
+        "cssselect",
+        "beautifulsoup4",
     ]
-    cases.append(
-        ("Partial parse + links", "astral-html", partial(partial_links, source))
-    )
-    order = list(range(len(cases)))
-    random.Random(seed).shuffle(order)
-    timings = [0.0] * len(cases)
-    for index in order:
-        timings[index] = measure_batch(cases[index][2], min_sample_time)
-    return [
-        (label, parser_name, timing)
-        for (label, parser_name, _), timing in zip(cases, timings, strict=True)
-    ]
-
-
-def run(samples: int, min_sample_time: float, fixture_names: set[str]) -> None:
-    print(f"Python {platform.python_version()}")
-    print(
-        "Versions: "
-        + ", ".join(
-            f"{package} {version(package)}"
-            for package in (
-                "astral-html-python",
-                "selectolax",
-                "lxml",
-                "cssselect",
-                "beautifulsoup4",
-            )
-        )
-    )
-    print(
-        f"\n{samples} fresh process samples per result, "
-        f"batches calibrated to at least {min_sample_time * 1000:g} ms."
-    )
-    print("Mean (SE), µs/operation; lower is better.\n")
-    print("| Fixture | Workload | Parser | Mean (SE), µs |")
+    versions = ", ".join(f"{p} {version(p)}" for p in packages)
+    print(f"Python {platform.python_version()}, {versions}")
+    unit = "KiB/document" if args.memory else "µs"
+    print(f"\n| Fixture | Parser | Workload | Mean ± SE ({unit}, {n} processes) |")
     print("| --- | --- | --- | ---: |")
-
-    for fixture in FIXTURE_SET:
-        if fixture_names and fixture.name.lower() not in fixture_names:
-            continue
-        timings: dict[tuple[str, str], list[float]] = {}
-        for seed in range(samples):
+    for page in args.fixture or FIXTURES:
+        filename, selector = FIXTURES[page]
+        source = (Path(__file__).parent / "fixtures" / filename).read_bytes().decode()
+        if args.memory:
+            worker = partial(memory, source)
+            modes = ("full", "partial")
+            jobs = [m for i in range(n) for m in (modes[::-1] if i % 2 else modes)]
+        else:
+            worker = partial(timings, source, selector, args.min_sample_ms)
+            jobs = range(n)
+        values = defaultdict(list)
+        with multiprocessing.get_context("spawn").Pool(1, maxtasksperchild=1) as pool:
+            for sample in pool.imap(worker, jobs):
+                for label, value in sample.items():
+                    values[label].append(value)
+        for label, v in values.items():
             print(
-                f"{fixture.name}: sample {seed + 1}/{samples}",
-                file=sys.stderr,
+                f"| {page} | {label} | {mean(v):.3g} ± {stdev(v) / math.sqrt(n):.1g} |",
                 flush=True,
             )
-            worker = subprocess.run(
-                [
-                    sys.executable,
-                    str(Path(__file__).resolve()),
-                    "--worker",
-                    fixture.name.lower(),
-                    "--seed",
-                    str(seed),
-                    "--min-sample-ms",
-                    str(min_sample_time * 1000),
-                ],
-                check=True,
-                stdout=subprocess.PIPE,
-                text=True,
-            )
-            for label, parser_name, elapsed in json.loads(worker.stdout):
-                timings.setdefault((label, parser_name), []).append(elapsed)
-        for (label, parser_name), values in timings.items():
-            mean = statistics.mean(values)
-            error = statistics.stdev(values) / math.sqrt(samples)
-            print(
-                f"| {fixture.name} | {label} | {parser_name} | {format_measurement(mean, error)} |",
-                flush=True,
-            )
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--samples",
-        type=int,
-        default=20,
-        help="fresh process samples (default: 20)",
-    )
-    parser.add_argument(
-        "--min-sample-ms",
-        type=float,
-        default=20,
-        help="minimum calibration batch time in ms",
-    )
-    parser.add_argument(
-        "--fixture",
-        choices=[fixture.name.lower() for fixture in FIXTURE_SET],
-        action="append",
-    )
-    parser.add_argument(
-        "--worker",
-        choices=[fixture.name.lower() for fixture in FIXTURE_SET],
-        help=argparse.SUPPRESS,
-    )
-    parser.add_argument("--seed", type=int, default=0, help=argparse.SUPPRESS)
-    args = parser.parse_args()
-    if (
-        args.samples < 2
-        or not math.isfinite(args.min_sample_ms)
-        or args.min_sample_ms <= 0
-    ):
-        parser.error(
-            "--samples must be at least 2 and --min-sample-ms must be positive"
-        )
-    if args.worker:
-        fixture = next(f for f in FIXTURE_SET if f.name.lower() == args.worker)
-        print(json.dumps(sample(fixture, args.min_sample_ms / 1000, args.seed)))
-    else:
-        run(args.samples, args.min_sample_ms / 1000, set(args.fixture or []))
 
 
 if __name__ == "__main__":

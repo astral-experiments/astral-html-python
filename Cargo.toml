@@ -12,8 +12,6 @@ include = [
     "/Cargo.lock",
     "/LICENSE-*",
     "/README.md",
-    "/docs/api.md",
-    "/docs/implementation.md",
     "/pyproject.toml",
     "/python/astral_html/*.py",
     "/python/astral_html/*.pyi",

@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 [project.urls]
-Documentation = "https://github.com/konsti-openai/astral-html-python/blob/main/docs/api.md"
+Documentation = "https://github.com/konsti-openai/astral-html-python#api"
 Source = "https://github.com/konsti-openai/astral-html-python"
 Issues = "https://github.com/konsti-openai/astral-html-python/issues"
 
