@@ -37,6 +37,7 @@ def test_tagged_selectors_and_nested_alternatives() -> None:
     doc = parse('<main><a href="/">one</a><span><a href="/">two</a></span></main>')
     _, one, span, two = doc.elements()
     assert doc.select("main A[href]") == doc.select(r"\61 [href]") == [one, two]
+    assert doc.select("|a[href]") == [one, two]
     assert doc.select(":is(span, a)") == doc.select("span, a") == [one, span, two]
     assert doc.select("span:has(a)") == [span]
 
