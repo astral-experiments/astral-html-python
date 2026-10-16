@@ -11,8 +11,11 @@ by the tree instead.
 The parser builds a lexical tree rather than a browser HTML5 DOM. It does not
 insert implied elements or repair malformed markup using browser tree-building
 rules. An end tag closes the innermost open element of the same name and its
-descendants; void elements close immediately. SVG and MathML namespaces and
-browser fragment insertion modes are not tracked. See the
+descendants; void elements close immediately. End tags usually match the top of
+the stack. If an end tag instead requires searching a deep stack, the parser
+builds an index of open tag names and maintains it for the rest of the parse.
+SVG and MathML namespaces and browser fragment insertion modes are not tracked.
+See the
 [upstream safety notes](https://github.com/astral-sh/astral-html/blob/b363c5e79fb5b896d5ac7b7bd78786fd5e9d196c/docs/safety.md)
 before using parsed HTML in security-sensitive contexts.
 
@@ -40,3 +43,14 @@ handles are created only for matches. Tag-only enumeration scans the relevant
 subtree without parsing a selector. See the [API reference](api.md) for query
 behavior and supported selectors. When a caller has little stack space, CSS
 selection allocates a temporary larger stack; those calls take longer.
+
+Each query has its own matching budget and caches. The budget counts candidate
+checks, tree traversal, attribute lookups, and element identity requests. It
+starts at 262,144 units, increasing to 64 units per node in the search range.
+Selectors with more than 16 components consume the budget faster. The budget
+bounds repeated matching operations. The cost of an individual operation still
+depends on the data, such as the length of an attribute value.
+Relative-selector caches are discarded in batches, with a separate limit for a
+single expensive candidate. Servo's traversal callbacks cannot return errors,
+so hitting a limit unwinds directly to the query boundary and becomes a Python
+`ValueError`. Results and caches are discarded together.

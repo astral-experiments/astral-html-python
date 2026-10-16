@@ -5,16 +5,24 @@ build-backend = "maturin"
 [project]
 name = "astral-html-python"
 dynamic = ["version"]
-description = "A fast Rust-backed HTML scraper for Python"
+description = "A Rust-backed HTML parser and CSS selector engine for Python"
 requires-python = ">=3.14,<3.16"
 license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
 readme = "README.md"
 classifiers = [
-    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: 3.15",
+    "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Rust",
+    "Typing :: Typed",
 ]
+
+[project.urls]
+Documentation = "https://github.com/konsti-openai/astral-html-python/blob/main/docs/api.md"
+Source = "https://github.com/konsti-openai/astral-html-python"
+Issues = "https://github.com/konsti-openai/astral-html-python/issues"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.11", "ty>=0.0.1"]

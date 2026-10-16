@@ -2,14 +2,15 @@
 
 A Python library for scraping HTML with [astral-html](https://github.com/astral-sh/astral-html). The parser and tree stay in Rust; Python objects are created as you request them.
 
-We support Python versions in the [bugfix phase](https://devguide.python.org/versions/): currently Python 3.14 and 3.15.
+We support CPython 3.14 and 3.15. Importing the extension on a free-threaded
+build currently enables the GIL.
 
 ## Quick start
 
 From a checkout, use [uv](https://docs.astral.sh/uv/) to set up the project and build the extension. This requires Rust 1.97 or newer.
 
 ```sh
-uv sync
+uv sync --locked
 uv run python
 ```
 
@@ -42,7 +43,7 @@ See the [Python API reference](docs/api.md) and [implementation notes](docs/impl
 
 ## Benchmark snapshot
 
-Time to parse a captured page and extract each link's `href` and text, in microseconds per operation. Values are the mean and standard error (SE) over 20 fresh process samples:
+Snapshot from version 0.1.0. Time to parse a captured page and extract each link's `href` and text, in microseconds per operation. Values are the mean and standard error (SE) over 20 fresh process samples:
 
 | Parser and mode | PyPI | GitHub | Wikipedia |
 | --- | ---: | ---: | ---: |
@@ -59,12 +60,15 @@ The runner checks that the parsers return the same links before timing. See the 
 From a checkout:
 
 ```sh
-uv sync --group benchmark
+uv sync --locked --group benchmark
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
 uv run ty check
 uv run --group benchmark python benchmarks/run.py
 ```
+
+See [building and checking a distribution](docs/packaging.md) to test the
+source archive and wheel that would be released.
 
 Licensed under MIT or Apache-2.0.
