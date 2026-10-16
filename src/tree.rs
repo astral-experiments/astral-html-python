@@ -1,6 +1,6 @@
 //! A compact source-order tree built with astral-html's streaming reader.
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use astral_html::{Attribute, Limits, Reader, Token};
@@ -30,6 +30,8 @@ struct Open<'a> {
     name: Cow<'a, str>,
     retained: Option<usize>,
     last_child: Option<usize>,
+    // Previous stack depth with this name, once open_names is in use.
+    previous: Option<usize>,
 }
 
 impl<'a> Tree<'a> {
@@ -40,6 +42,9 @@ impl<'a> Tree<'a> {
             attributes: Vec::new(),
         };
         let mut stack: Vec<Open<'a>> = Vec::new();
+        // Like astral_html::Document, index a deep stack only when an end tag
+        // mismatches the top. Repeated unmatched tags then need one lookup each.
+        let mut open_names: Option<HashMap<Cow<'a, str>, usize>> = None;
         // Open elements track their last retained child; roots share one list.
         let mut last_root = None;
         for token in Reader::new(source) {
@@ -83,19 +88,48 @@ impl<'a> Tree<'a> {
                         index = Some(i);
                     }
                     if !void {
+                        let previous = open_names
+                            .as_mut()
+                            .and_then(|names| names.insert(tag.name.clone(), stack.len()));
                         stack.push(Open {
                             name: tag.name,
                             retained: index,
                             last_child: None,
+                            previous,
                         });
                     }
                 }
                 Token::EndTag(tag) => {
-                    if let Some(depth) = stack.iter().rposition(|entry| entry.name == tag.name) {
+                    let matches_top = stack.last().is_some_and(|entry| entry.name == tag.name);
+                    if !matches_top && stack.len() > 8 && open_names.is_none() {
+                        let mut names = HashMap::new();
+                        for (depth, entry) in stack.iter_mut().enumerate() {
+                            entry.previous = names.insert(entry.name.clone(), depth);
+                        }
+                        open_names = Some(names);
+                    }
+                    let depth = if matches_top {
+                        Some(stack.len() - 1)
+                    } else if let Some(names) = &open_names {
+                        names.get(tag.name.as_ref()).copied()
+                    } else {
+                        stack.iter().rposition(|entry| entry.name == tag.name)
+                    };
+                    if let Some(depth) = depth {
                         let end = tree.nodes.len();
-                        for entry in stack.drain(depth..) {
+                        // Close innermost first to restore shadowed same-name entries.
+                        for entry in stack.drain(depth..).rev() {
                             if let Some(index) = entry.retained {
                                 tree.nodes[index].end = end;
+                            }
+                            if let Some(names) = &mut open_names {
+                                if let Some(previous) = entry.previous {
+                                    *names
+                                        .get_mut(entry.name.as_ref())
+                                        .expect("open name is indexed") = previous;
+                                } else {
+                                    names.remove(entry.name.as_ref());
+                                }
                             }
                         }
                     }

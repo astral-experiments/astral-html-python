@@ -8,7 +8,9 @@ use std::{borrow::Cow, fmt, ops::Range};
 
 use cssparser::ToCss;
 use precomputed_hash::PrecomputedHash;
-use selectors::attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint};
+use selectors::attr::{
+    AttrSelectorOperation, AttrSelectorOperator, CaseSensitivity, NamespaceConstraint,
+};
 use selectors::bloom::BloomFilter;
 use selectors::matching::{self, ElementSelectorFlags};
 use selectors::parser::{
@@ -17,11 +19,14 @@ use selectors::parser::{
 use selectors::{Element, OpaqueElement};
 
 use crate::tree::{Kind, Tree};
+mod limits;
+use limits::MatchBudget;
 
 // Servo recurses both across combinators and into selector functions. HTML's
 // nesting limit cannot protect shallow trees with long sibling selectors.
 const MAX_MATCH_DEPTH: usize = 128;
 const MAX_BLOCK_DEPTH: u8 = 32;
+const MAX_SELECTOR_BYTES: usize = 256 * 1024;
 
 /// Work around Servo 0.41 accepting functional :host even with parse_host off.
 /// Rename its function token to an unsupported name so Servo itself handles
@@ -81,13 +86,16 @@ fn prepare_selector(css: &str) -> Result<Cow<'_, str>, String> {
 /// lists. Alternatives and consecutive simple selectors run sequentially and
 /// do not add stack depth. Counting the whole outer chain for each nested list
 /// is conservative, including functions in compounds to the left of a sibling.
-fn check_match_depth(selector: &Selector<Css>, outer_depth: usize) -> Result<(), String> {
-    let depth = outer_depth
-        + 1
-        + selector
-            .iter_raw_match_order()
-            .filter(|component| matches!(component, Component::Combinator(_)))
-            .count();
+fn check_match_depth(
+    selector: &Selector<Css>,
+    outer_depth: usize,
+    shape: &mut SelectorShape,
+) -> Result<(), String> {
+    let mut depth = outer_depth + 1;
+    for component in selector.iter_raw_match_order() {
+        shape.components += 1;
+        depth += usize::from(matches!(component, Component::Combinator(_)));
+    }
     if depth > MAX_MATCH_DEPTH {
         return Err(format!(
             "CSS selector exceeds the matching complexity limit ({MAX_MATCH_DEPTH} nested compounds)"
@@ -97,23 +105,30 @@ fn check_match_depth(selector: &Selector<Css>, outer_depth: usize) -> Result<(),
         match component {
             Component::Is(list) | Component::Where(list) | Component::Negation(list) => {
                 for nested in list.slice() {
-                    check_match_depth(nested, depth)?;
+                    check_match_depth(nested, depth, shape)?;
                 }
             }
             Component::NthOf(nth) => {
                 for nested in nth.selectors() {
-                    check_match_depth(nested, depth)?;
+                    check_match_depth(nested, depth, shape)?;
                 }
             }
             Component::Has(list) => {
+                shape.has_relative = true;
                 for nested in list.iter() {
-                    check_match_depth(&nested.selector, depth)?;
+                    check_match_depth(&nested.selector, depth, shape)?;
                 }
             }
             _ => {}
         }
     }
     Ok(())
+}
+
+#[derive(Default)]
+struct SelectorShape {
+    has_relative: bool,
+    components: usize,
 }
 
 /// Scan candidates in source order, materializing only matching node indices.
@@ -141,24 +156,29 @@ fn select_with_stack(
     css: &str,
     first: bool,
 ) -> Result<Vec<usize>, String> {
+    if css.len() > MAX_SELECTOR_BYTES {
+        return Err("CSS selector exceeds the 256 KiB input limit".to_owned());
+    }
     let prepared = prepare_selector(css)?;
     let mut parser = cssparser::Parser::new(&prepared);
     let selectors = SelectorList::parse(&CssParser, &mut parser, ParseRelative::No)
         .map_err(|error| format!("invalid CSS selector {css:?}: {error:?}"))?;
-    for selector in selectors.slice() {
-        check_match_depth(selector, 0)?;
+    let selectors = selectors.slice();
+    let mut shape = SelectorShape::default();
+    for selector in selectors {
+        check_match_depth(selector, 0, &mut shape)?;
     }
     // Only a literal tag in the rightmost compound is required of every match.
     // Selector lists and selectors without a literal tag use the full matcher for each node.
-    let tag = match selectors.slice() {
+    let tag = match selectors {
         [selector] => selector.iter().find_map(|component| match component {
-            Component::LocalName(name) => Some(name.lower_name.0.as_str()),
+            Component::LocalName(name) => Some(name.lower_name.value.as_str()),
             _ => None,
         }),
         _ => None,
     };
     let (start, end) = root.map_or((0, tree.nodes.len()), |i| (i + 1, tree.nodes[i].end));
-    let mut output = Vec::new();
+    let budget = MatchBudget::new(end - start, shape);
     let mut caches = matching::SelectorCaches::default();
     let mut context = matching::MatchingContext::new(
         matching::MatchingMode::Normal,
@@ -168,27 +188,34 @@ fn select_with_stack(
         matching::NeedsSelectorFlags::No,
         matching::MatchingForInvalidation::No,
     );
-    context.scope_element = root.map(|index| ElementRef { tree, index }.opaque());
-    for index in start..end {
-        if !matches!(tree.nodes[index].kind, Kind::Element { .. }) {
-            continue;
-        }
-        let element = ElementRef { tree, index };
-        if tag.is_some_and(|tag| tag != element.name()) {
-            continue;
-        }
-        if selectors
-            .slice()
-            .iter()
-            .any(|selector| matching::matches_selector(selector, 0, None, &element, &mut context))
-        {
-            output.push(index);
-            if first {
-                break;
+    context.scope_element = root.map(|i| OpaqueElement::new(&tree.nodes[i]));
+    limits::with_match_limits(move || {
+        let mut output = Vec::new();
+        for index in start..end {
+            let Kind::Element { name, .. } = &tree.nodes[index].kind else {
+                continue;
+            };
+            if tag.is_some_and(|tag| tag != name.as_ref()) {
+                continue;
+            }
+            budget.start_element(context.selector_caches);
+            let element = ElementRef {
+                tree,
+                index,
+                budget: &budget,
+            };
+            if selectors.iter().any(|selector| {
+                budget.visit();
+                matching::matches_selector(selector, 0, None, &element, &mut context)
+            }) {
+                output.push(index);
+                if first {
+                    break;
+                }
             }
         }
-    }
-    Ok(output)
+        output
+    })
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -222,23 +249,35 @@ impl parser::SelectorImpl for Css {
     type ExtraMatchingData<'a> = ();
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct CssName(String);
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct CssName {
+    value: String,
+    hash: u32,
+}
 impl From<&str> for CssName {
     fn from(value: &str) -> Self {
-        Self(value.to_owned())
+        let hash = value.bytes().fold(2_166_136_261, |hash, byte| {
+            (hash ^ u32::from(byte)).wrapping_mul(16_777_619)
+        });
+        Self {
+            value: value.to_owned(),
+            hash,
+        }
+    }
+}
+impl Default for CssName {
+    fn default() -> Self {
+        Self::from("")
     }
 }
 impl ToCss for CssName {
     fn to_css<W: fmt::Write>(&self, dest: &mut W) -> fmt::Result {
-        cssparser::serialize_identifier(&self.0, dest)
+        cssparser::serialize_identifier(&self.value, dest)
     }
 }
 impl PrecomputedHash for CssName {
     fn precomputed_hash(&self) -> u32 {
-        self.0.bytes().fold(2_166_136_261, |hash, byte| {
-            (hash ^ u32::from(byte)).wrapping_mul(16_777_619)
-        })
+        self.hash
     }
 }
 
@@ -291,6 +330,7 @@ impl ToCss for PseudoElement {
 struct ElementRef<'tree, 'source> {
     tree: &'tree Tree<'source>,
     index: usize,
+    budget: &'tree MatchBudget,
 }
 impl fmt::Debug for ElementRef<'_, '_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -305,6 +345,7 @@ impl<'tree, 'source> ElementRef<'tree, 'source> {
         }
     }
     fn attribute(&self, name: &str) -> Option<&str> {
+        self.budget.visit();
         match &self.tree.nodes[self.index].kind {
             Kind::Element { attrs, .. } => self.tree.attributes[attrs.clone()]
                 .iter()
@@ -314,16 +355,15 @@ impl<'tree, 'source> ElementRef<'tree, 'source> {
         }
     }
     fn at(&self, index: usize) -> Self {
-        Self {
-            tree: self.tree,
-            index,
-        }
+        self.budget.visit();
+        Self { index, ..*self }
     }
 }
 
 impl Element for ElementRef<'_, '_> {
     type Impl = Css;
     fn opaque(&self) -> OpaqueElement {
+        self.budget.record_identity();
         OpaqueElement::new(&self.tree.nodes[self.index])
     }
     fn parent_element(&self) -> Option<Self> {
@@ -358,6 +398,7 @@ impl Element for ElementRef<'_, '_> {
             if matches!(node.kind, Kind::Element { .. }) {
                 return Some(self.at(index));
             }
+            self.budget.visit();
             index = node.end;
         }
         None
@@ -366,10 +407,10 @@ impl Element for ElementRef<'_, '_> {
         true
     }
     fn has_local_name(&self, name: &CssName) -> bool {
-        self.name() == name.0
+        self.name() == name.value
     }
     fn has_namespace(&self, namespace: &CssName) -> bool {
-        namespace.0.is_empty()
+        namespace.value.is_empty()
     }
     fn is_same_type(&self, other: &Self) -> bool {
         self.name() == other.name()
@@ -380,11 +421,28 @@ impl Element for ElementRef<'_, '_> {
         name: &CssName,
         operation: &AttrSelectorOperation<&CssString>,
     ) -> bool {
-        if matches!(namespace, NamespaceConstraint::Specific(name) if !name.0.is_empty()) {
+        if matches!(namespace, NamespaceConstraint::Specific(name) if !name.value.is_empty()) {
             return false;
         }
-        self.attribute(&name.0)
-            .is_some_and(|value| operation.eval_str(value))
+        let Some(actual) = self.attribute(&name.value) else {
+            return false;
+        };
+        // Servo compares an ASCII-insensitive substring at every possible
+        // offset. Keep its allocation-free path for short needles, and use
+        // Rust's linear-time substring search when the needle is long.
+        if let AttrSelectorOperation::WithValue {
+            operator: AttrSelectorOperator::Substring,
+            case_sensitivity: CaseSensitivity::AsciiCaseInsensitive,
+            value,
+        } = operation
+            && value.0.len() > 32
+        {
+            return actual.len() >= value.0.len()
+                && actual
+                    .to_ascii_lowercase()
+                    .contains(&value.0.to_ascii_lowercase());
+        }
+        operation.eval_str(actual)
     }
     fn match_non_ts_pseudo_class(
         &self,
@@ -409,13 +467,13 @@ impl Element for ElementRef<'_, '_> {
     }
     fn has_id(&self, id: &CssName, case: CaseSensitivity) -> bool {
         self.attribute("id")
-            .is_some_and(|value| case.eq(id.0.as_bytes(), value.as_bytes()))
+            .is_some_and(|value| case.eq(id.value.as_bytes(), value.as_bytes()))
     }
     fn has_class(&self, class: &CssName, case: CaseSensitivity) -> bool {
         self.attribute("class").is_some_and(|value| {
             value
                 .split([' ', '\t', '\n', '\r', '\u{000c}'])
-                .any(|part| case.eq(class.0.as_bytes(), part.as_bytes()))
+                .any(|part| case.eq(class.value.as_bytes(), part.as_bytes()))
         })
     }
     fn has_custom_state(&self, _name: &CssName) -> bool {

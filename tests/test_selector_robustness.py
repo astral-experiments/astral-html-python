@@ -71,6 +71,12 @@ def test_long_sibling_chain_is_rejected_without_aborting() -> None:
     )
 
 
+def test_matching_work_limit_unwinds_on_a_small_worker_stack() -> None:
+    query_in_subprocess(
+        ":is(.missing ~ i) ~ i", "<i></i>" * 2_000, "matching work limit", worker=True
+    )
+
+
 @pytest.mark.parametrize(
     ("template", "compounds", "matches"),
     [

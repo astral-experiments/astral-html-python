@@ -9,8 +9,9 @@ tree stays in Rust, and Python values are created when requested. `Document` and
 `Element` cannot be constructed or subclassed directly.
 
 Parsing and the Rust tree scans in `elements`, `select`, and `select_one`
-release the Python GIL, including selector parsing and matching. Python result
-objects are created after reacquiring it. The immutable tree can be queried
+release the Python GIL, including selector parsing and matching. On a
+free-threaded CPython build, importing the extension currently enables the GIL.
+Python result objects are created after reacquiring it. The immutable tree can be queried
 concurrently from multiple threads.
 
 ```python
@@ -119,9 +120,12 @@ unsupported selectors raise `ValueError`. Browser-state pseudo-classes such as
 `:hover` and pseudo-elements are unsupported. As in CSS, `:is()` and `:where()`
 can discard invalid alternatives.
 
-To bound matching depth, selectors may use at most 32 nested CSS blocks and
-128 compounds along a path through nested selector functions. Selectors that
-exceed these limits raise `ValueError`.
+Selectors are limited to 256 KiB of UTF-8, 32 nested CSS blocks, and 128
+compounds along a path through nested selector functions. Matching also has a
+work budget that scales with the search range, and a separate limit on the
+temporary cache used by `:has()`. A valid but expensive selector can exceed a
+limit. In that case the query raises `ValueError` and returns no partial results.
+`select_one` can still return a match found before a limit is reached.
 
 For an `Element` query, `:scope` refers to that element, so use
 `element.select(":scope > a")` for its direct link children. The selector may

@@ -3,7 +3,23 @@ name = "astral-html-python"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.97"
+description = "A Rust-backed HTML parser and CSS selector engine for Python"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/konsti-openai/astral-html-python"
+publish = false
+# Maturin uses Cargo's package file list when building the Python source archive.
+include = [
+    "/Cargo.lock",
+    "/LICENSE-*",
+    "/README.md",
+    "/docs/api.md",
+    "/docs/implementation.md",
+    "/pyproject.toml",
+    "/python/astral_html/*.py",
+    "/python/astral_html/*.pyi",
+    "/python/astral_html/py.typed",
+    "/src/**/*.rs",
+]
 
 [lib]
 name = "_astral_html"
