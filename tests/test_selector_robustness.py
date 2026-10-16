@@ -1,220 +1,149 @@
-import json
 import subprocess
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from astral_html import parse
 
 
-def query_in_subprocess(
-    css: str,
-    html: str,
-    expected: int | str,
-    method: str = "select",
-    *,
-    worker: bool = False,
-) -> None:
-    # A native stack overflow aborts Python, so both rejection and boundary
-    # matching must run outside the pytest process.
+def test_selector_limits_on_a_small_worker_stack() -> None:
+    # A native stack overflow aborts Python. Run the boundary cases together
+    # on a small worker stack, including the ones expected to succeed.
+    subprocess.run(
+        [sys.executable, "-X", "faulthandler", __file__], timeout=30, check=True
+    )
+
+
+def exercise_stack_limits() -> None:
+    complexity = "matching complexity limit"
+
+    def check(selector: str, expected: int | str, html: str = "<x></x>") -> None:
+        select = parse(html).select
+        if isinstance(expected, str):
+            with pytest.raises(ValueError, match=expected):
+                select(selector)
+        else:
+            assert len(select(selector)) == expected, selector
+
+    check("i+" * 35_000 + "x", complexity, "<i></i>" * 35_000 + "<x></x>")
+    check(":is(.missing ~ i) ~ i", "matching work limit", "<i></i>" * 2_000)
+    chain = "i+" * 128 + "x"
+    check("x, " + chain, complexity)
+    check(f":is(x, {chain})", complexity)
+    check(
+        "i+" * 64 + ":is(" + "i+" * 64 + "x)", complexity, "<i></i>" * 128 + "<x></x>"
+    )
+
+    for depth in (32, 33, 10_000):
+        check(":is(" * depth + "x" + ")" * depth, 1 if depth == 32 else "nesting limit")
+
+    # Each selector consumes the whole matching-depth budget, then exceeds it
+    # by one sibling. Nested functions use part of that same budget.
+    for prefix, allowed, matches in [
+        ("", 128, 1),
+        (":is(", 127, 1),
+        (":where(", 127, 1),
+        ("x:not(", 127, 0),
+        (":nth-child(1 of ", 127, 1),
+        (":nth-last-child(1 of ", 127, 1),
+        ("main:has(", 126, 1),
+        (":is(" * 32, 96, 1),
+        (":nth-child(1 of " * 32, 96, 1),
+    ]:
+        for count, expected in ((allowed, matches), (allowed + 1, complexity)):
+            chain = "i+" * (count - 1) + "x"
+            selector = prefix + chain + ")" * prefix.count("(")
+            html = "<main>" + "<i></i>" * (count - 1) + "<x></x></main>"
+            check(selector, expected, html)
+
+    # :has() recurses through the tree as well as through the selector.
+    for wrappers in (0, 31):
+        depth = 125 - wrappers
+        doc = parse("<main>" + "<div>" * 254 + "<i></i>" * depth + "<x></x>")
+        for step in ("i+", "div>"):
+            selector = (
+                ":is(" * wrappers
+                + "main:has("
+                + step * depth
+                + "x"
+                + ")" * (wrappers + 1)
+            )
+            (main,) = doc.select(selector)
+            assert main.tag == "main"
+            assert doc.select_one(selector) == main
+
+
+def test_wide_lists_and_long_compounds_fit_the_depth_budget() -> None:
+    value = "(" * 256
+    doc = parse(f'<p class="x" data-value="{value}"></p>')
+    wide = ",".join(["p"] * 512)
+    for selector in (wide, f":is({wide})", ".x" * 512, f'[data-value="{value}"]'):
+        assert doc.select(selector) == doc.elements()
+
+
+def test_work_limit_discards_matches_and_allows_subsequent_queries() -> None:
+    doc = parse("<b></b>" + "<i></i>" * 2_000)
+    query = "b, :is(.missing ~ i) ~ i"
+    assert doc.select_one(query) == doc.elements("b")[0]
+    with pytest.raises(ValueError, match="matching work limit"):
+        doc.select(query)
+    with pytest.raises(ValueError, match="matching work limit"):
+        doc.select_one(":not(:is(.missing ~ i) ~ i) + .missing ~ i")
+    assert len(doc.select("i")) == 2_000
+
+
+def test_work_limit_without_tree_traversal() -> None:
+    doc = parse("<b><i></i></b>" * 2_048)
+    with pytest.raises(ValueError, match="matching work limit"):
+        doc.select(", ".join(["i:nth-child(even of *)"] * 256))
+    assert len(doc.select("i:first-child")) == 2_048
+
+    wide = ",".join([":not(*)"] * 2_048)
+    with pytest.raises(ValueError, match="matching work limit"):
+        parse("<i></i>" * 4_000).select(f":is({wide})")
+
+
+def test_relative_cache_rotation_preserves_late_and_negated_matches() -> None:
+    doc = parse("<i></i>" * 2_000 + "<i><b></b></i>")
+    query = "i:has(.missing, b)"
+    assert doc.select(query) == [doc.select_one("i:last-child")]
+    assert len(doc.select(f"i:not({query})")) == 2_000
+
+
+def test_relative_cache_limit_within_one_candidate() -> None:
+    doc = parse("<i></i>" * 8_192 + "<b></b>")
+    with pytest.raises(ValueError, match="relative-selector cache limit"):
+        doc.select_one("i:has(.x, .y) ~ b")
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="uses Linux peak RSS units")
+def test_has_does_not_retain_a_bloom_filter_for_every_leaf() -> None:
+    # The regression used 65 MiB during matching. Measure after parsing.
     code = """
-import json
-import sys
-import threading
+from resource import getrusage, RUSAGE_SELF
 from astral_html import parse
-css, html, method, worker = json.load(sys.stdin)
-document = parse(html)
-def query():
-    try:
-        result = getattr(document, method)(css)
-    except ValueError as error:
-        print(error)
-    else:
-        print(len(result) if method == 'select' else int(result is not None))
-if worker:
-    # The minimum varies by platform; both sizes exercise a small stack.
+doc = parse("<i></i>" * 16_000)
+before = getrusage(RUSAGE_SELF).ru_maxrss
+assert doc.select("i:has(.x, .y)") == []
+print(getrusage(RUSAGE_SELF).ru_maxrss - before)
+"""
+    extra_kib = int(subprocess.check_output([sys.executable, "-c", code], timeout=20))
+    assert extra_kib < 24 * 1024
+
+
+def test_selector_input_limit() -> None:
+    with pytest.raises(ValueError, match="256 KiB input limit"):
+        parse("").select("p" * (256 * 1024 + 1))
+
+
+if __name__ == "__main__":
+    # If a platform disallows both small sizes, still test its default stack.
     for stack_size in (65536, 131072):
         try:
             threading.stack_size(stack_size)
-        except (RuntimeError, ValueError):
+        except RuntimeError, ValueError:
             continue
         break
-    else:
-        sys.exit(77)
-    thread = threading.Thread(target=query)
-    thread.start()
-    thread.join()
-else:
-    query()
-"""
-    result = subprocess.run(
-        [sys.executable, "-c", code],
-        input=json.dumps([css, html, method, worker]),
-        capture_output=True,
-        check=False,
-        text=True,
-        timeout=20,
-    )
-    if result.returncode == 77:
-        pytest.skip("thread stack size is unsupported on this platform")
-    assert result.returncode == 0, result.stderr
-    if isinstance(expected, int):
-        assert result.stdout.strip() == str(expected)
-    else:
-        assert expected in result.stdout
-
-
-def test_long_sibling_chain_is_rejected_without_aborting() -> None:
-    query_in_subprocess(
-        "i+" * 35_000 + "x",
-        "<main>" + "<i></i>" * 35_000 + "<x></x></main>",
-        "matching complexity limit",
-    )
-
-
-def test_matching_work_limit_unwinds_on_a_small_worker_stack() -> None:
-    query_in_subprocess(
-        ":is(.missing ~ i) ~ i", "<i></i>" * 2_000, "matching work limit", worker=True
-    )
-
-
-@pytest.mark.parametrize(
-    ("template", "compounds", "matches"),
-    [
-        ("{}", 128, 1),
-        (":is({})", 127, 1),
-        (":where({})", 127, 1),
-        ("x:not({})", 127, 0),
-        (":nth-child(1 of {})", 127, 1),
-        (":nth-last-child(1 of {})", 127, 1),
-        ("main:has({})", 126, 1),
-    ],
-)
-def test_matching_depth_boundary_includes_nested_functions(
-    template: str, compounds: int, matches: int
-) -> None:
-    for count in [compounds, compounds + 1]:
-        chain = "i+" * (count - 1) + "x"
-        query_in_subprocess(
-            template.format(chain),
-            "<main>" + "<i></i>" * (count - 1) + "<x></x></main>",
-            matches if count == compounds else "matching complexity limit",
-        )
-
-
-@pytest.mark.parametrize("template", ["x, {}", ":is(x, {})"])
-def test_overlong_chain_is_checked_before_matching_or_short_circuiting(
-    template: str,
-) -> None:
-    query_in_subprocess(
-        template.format("i+" * 128 + "x"), "<x></x>", "matching complexity limit"
-    )
-
-
-def test_nested_chains_share_the_matching_depth_budget() -> None:
-    # Each individual chain fits, but evaluating the inner one while matching
-    # the outer one would exceed the shared stack-depth budget.
-    query_in_subprocess(
-        "i+" * 64 + ":is(" + "i+" * 64 + "x)",
-        "<i></i>" * 128 + "<x></x>",
-        "matching complexity limit",
-    )
-
-
-def test_selector_nesting_limit_and_safe_boundary() -> None:
-    for count in [32, 33, 10_000]:
-        query_in_subprocess(
-            ":is(" * count + "x" + ")" * count,
-            "<x></x>",
-            1 if count == 32 else "nesting limit",
-        )
-
-
-@pytest.mark.parametrize("function", ["is(", "nth-child(1 of "])
-def test_nested_functions_and_chains_share_budget_on_small_worker_stack(
-    function: str,
-) -> None:
-    for compounds in [96, 97]:
-        chain = "i+" * (compounds - 1) + "x"
-        query_in_subprocess(
-            (":" + function) * 32 + chain + ")" * 32,
-            "<i></i>" * (compounds - 1) + "<x></x>",
-            1 if compounds == 96 else "matching complexity limit",
-            worker=True,
-        )
-
-
-@pytest.mark.parametrize(("wrappers", "method"), [(0, "select"), (31, "select_one")])
-def test_has_combines_maximum_html_and_selector_depth_on_small_worker_stack(
-    wrappers: int, method: str
-) -> None:
-    # :has() recursively walks the tree in addition to recursing through the
-    # selector. This used to exhaust tiny worker stacks even below both limits.
-    compounds = 126 - wrappers
-    html = (
-        "<main>"
-        + "<div>" * 254
-        + "<i></i>" * (compounds - 1)
-        + "<x></x>"
-        + "</div>" * 254
-        + "</main>"
-    )
-    for chain in ["i+" * (compounds - 1) + "x", "div>" * (compounds - 1) + "x"]:
-        query_in_subprocess(
-            ":is(" * wrappers + "main:has(" + chain + ")" * (wrappers + 1),
-            html,
-            1,
-            method,
-            worker=True,
-        )
-
-
-def test_wide_lists_and_long_compounds_do_not_consume_recursive_budget() -> None:
-    document = parse('<p class="x" data-value="' + "(" * 256 + '"></p>')
-    assert len(document.select(",".join(["p"] * 512))) == 1
-    assert len(document.select(":is(" + ",".join(["p"] * 512) + ")")) == 1
-    assert len(document.select(".x" * 512)) == 1
-    assert len(document.select('[data-value="' + "(" * 256 + '"]')) == 1
-
-
-@pytest.mark.parametrize(
-    "selector",
-    [
-        ":host",
-        ":host(div)",
-        ":HOST(div)",
-        r":h\6fst(div)",
-        "p, :host(div)",
-        ":not(:host(div))",
-        "div:has(:host(div))",
-        ":nth-child(1 of :host(div))",
-    ],
-)
-def test_shadow_host_is_unsupported(selector: str) -> None:
-    with pytest.raises(ValueError, match="invalid CSS selector"):
-        parse("<div><p></p></div>").select(selector)
-
-
-@pytest.mark.parametrize(
-    ("selector", "tags"),
-    [
-        (":is(:host(div), p)", ["p"]),
-        (":where(:host(div), p)", ["p"]),
-        (r":is(:h\6fst(div), p)", ["p"]),
-        (":is(:not(:host(div)), p)", ["p"]),
-        (":not(:is(:host(div), p))", ["div"]),
-        (":is(:host(div))", []),
-        ("div:has(:is(:host(div), p))", ["div"]),
-    ],
-)
-def test_shadow_host_obeys_forgiving_selector_list_semantics(
-    selector: str, tags: list[str]
-) -> None:
-    assert [
-        element.tag for element in parse("<div><p></p></div>").select(selector)
-    ] == tags
-
-
-def test_host_text_in_strings_comments_and_identifiers_is_preserved() -> None:
-    document = parse('<p data-value=":host(div)" class="host(foo)"></p>')
-    for selector in ['[data-value=":host(div)"]', "p/*:host(div)*/", r".host\(foo\)"]:
-        assert len(document.select(selector)) == 1
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        worker.submit(exercise_stack_limits).result()

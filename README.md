@@ -1,74 +1,68 @@
 # astral-html-python
 
-A Python library for scraping HTML with [astral-html](https://github.com/astral-sh/astral-html). The parser and tree stay in Rust; Python objects are created as you request them.
+Scrape HTML from Python with [astral-html](https://github.com/astral-sh/astral-html).
+The tree stays in Rust. Python objects are created as you request them, and an
+element remains usable after you drop its document.
 
-We support CPython 3.14 and 3.15. Importing the extension on a free-threaded
-build currently enables the GIL.
-
-## Quick start
-
-From a checkout, use [uv](https://docs.astral.sh/uv/) to set up the project and build the extension. This requires Rust 1.97 or newer.
-
-```sh
-uv sync --locked
-uv run python
-```
+From a checkout, run `uv sync --locked` (CPython 3.14 or 3.15, Rust 1.97+).
+Then in `uv run python`:
 
 ```python
 from astral_html import parse
 
-html = '<main><a href="/guide">Read <b>the guide</b></a></main>'
-doc = parse(html)
-for link in doc.select("main a[href]"):
-    print(link.get("href"), link.text)  # /guide Read the guide
-
-first = doc.select_one("a")  # Element | None
-if first is not None:
-    print(first.tag, first.attrs)  # a {'href': '/guide'}
+doc = parse('<main><a href="/guide">Read <b>the guide</b></a></main>')
+(link,) = doc.select("main a[href]")
+link.get("href")  # '/guide'
+link.text  # 'Read the guide'
 ```
 
-For smaller retained trees, try experimental partial parsing:
+## API
 
-```python
-links = parse(html, tags=["a"])
-for link in links.select("a[href]"):
-    print(link.get("href"), link.text)
-```
+`parse(html)` takes a decoded string and builds a tree in source order.
+It preserves the nesting you wrote, including a `<p>` inside another `<p>`.
+It does not insert implied elements or apply browser HTML5 error recovery.
+See the [parser’s safety notes](https://github.com/astral-sh/astral-html/blob/b363c5e79fb5b896d5ac7b7bd78786fd5e9d196c/docs/safety.md).
 
-Partial parsing retains matching elements and their subtrees. Discarded
-ancestors can change selector results. The parser builds a source-order lexical
-tree, which can differ from a browser's HTML5 DOM.
+On a document or element, queries return matches in source order:
 
-See the [Python API reference](docs/api.md) and [implementation notes](docs/implementation.md) for details.
+- `select(css)` returns a list. On an element it searches descendants,
+  excluding the element itself. Use `element.select(":scope > a")` for direct children.
+- `select_one(css)` returns the first match, or `None`.
+- `elements(tag=None)` lists elements, optionally filtered by tag name.
 
-## Benchmark snapshot
+Elements expose `tag`, `parent`, `children`, a fresh `attrs` dictionary, and
+`get(name, default=None)`. Tag and attribute names are ASCII-lowercased. The
+first duplicate attribute wins. `text` joins descendant text without adding spaces,
+normalizes newlines, and decodes character references except in raw text such as
+`script`. Elements compare and hash by node identity.
 
-Snapshot from version 0.1.0. Time to parse a captured page and extract each link's `href` and text, in microseconds per operation. Values are the mean and standard error (SE) over 20 fresh process samples:
+`parse(html, tags=["a"])` is an experimental way to retain just matching elements
+and their subtrees. It still reads the entire input. Discarded ancestors change
+query results: a retained link can match `:root` and no longer match `main a`.
 
-| Parser and mode | PyPI | GitHub | Wikipedia |
-| --- | ---: | ---: | ---: |
-| astral-html, full tree | 14.5 (SE 0.1) | 290 (SE 20) | 2,500 (SE 200) |
-| selectolax (Lexbor) | 170 (SE 10) | 1,010 (SE 40) | 3,900 (SE 300) |
-| lxml | 163 (SE 0.5) | 1,420 (SE 20) | 9,180 (SE 40) |
-| Beautiful Soup (lxml) | 930 (SE 70) | 12,600 (SE 100) | 72,500 (SE 500) |
-| astral-html, `tags=["a"]` | 18.8 (SE 0.2) | 266 (SE 2) | 2,120 (SE 80) |
+CSS includes `:scope`, `:nth-child`, `:is`, `:not`, and `:has`. Unsupported
+selectors such as `:hover` raise `ValueError`, as do resource limits:
 
-The runner checks that the parsers return the same links before timing. See the [full results and methodology](benchmarks/README.md) for other queries and retained-memory measurements.
+- HTML: 128 MiB of UTF-8, 4 million retained nodes, 256 open elements.
+- CSS: 256 KiB of UTF-8, 32 nested blocks, 128 compounds along a selector path.
+  Expensive queries can also hit a work or cache limit. No partial results are returned.
+
+Parsing and queries release the GIL. Importing on free-threaded CPython currently enables it.
+
+## Performance
+
+In a captured Wikipedia page benchmark, parsing and extracting link URLs and text
+averaged 2,500 µs (standard error 200 µs) over 20 fresh processes. Retaining only
+link subtrees used about 959 KiB per document, compared with 1,660 KiB for the full
+tree. See [benchmarks](benchmarks/README.md) for the workloads, comparisons, and commands.
 
 ## Development
 
-From a checkout:
-
 ```sh
-uv sync --locked --group benchmark
 uv run pytest
-uv run ruff check .
-uv run ruff format --check .
-uv run ty check
-uv run --group benchmark python benchmarks/run.py
+uv run ruff check . && uv run ruff format --check . && uv run ty check
+cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings
 ```
 
-See [building and checking a distribution](docs/packaging.md) to test the
-source archive and wheel that would be released.
-
-Licensed under MIT or Apache-2.0.
+[CI](.github/workflows/ci.yml) builds a wheel from the source distribution and tests
+the installed package. Set the package version in `Cargo.toml`. License: MIT or Apache-2.0.

@@ -1,99 +1,53 @@
-# Benchmarks
+# Scraping benchmarks
 
-Run the benchmark from the repository root:
-
-```console
+```sh
 uv run --group benchmark python benchmarks/run.py
+uv run --group benchmark python benchmarks/run.py --memory  # Linux with glibc
 ```
 
-Use `--fixture pypi`, `--fixture github`, or `--fixture wikipedia` to select a
-page. `--samples` sets the number of fresh process samples (default 20), and
-`--min-sample-ms` sets the minimum time per batch (default 20 ms).
+Every parser must return Lexbor’s exact, ordered `(href, text)` pairs for all links and
+for a page-specific query (PyPI downloads with Python requirements, GitHub files, or
+Wikipedia article links). Parsers can still differ in how they recover malformed HTML.
 
-The fixtures are a PyPI Simple index, a GitHub repository page, and a Wikipedia
-article. See [fixture sources](fixtures/README.md) for provenance and licenses.
-Before timing, the runner checks each parser's ordered `(href, text)` results
-against Lexbor's and checks partial parsing against the full parse.
+## Time per operation, µs (mean ± standard error)
 
-Each library receives the same Python `str`. Timings include creating the
-output, but exclude reading the input file. Garbage collection remains enabled
-and runs before each batch. Trees involved in reference cycles may be collected
-outside the timed batch. Each sample starts a fresh process, checks the outputs,
-and measures every workload once in a shuffled order. Each measurement has
-three warmup operations followed by a calibrated batch.
+Release build of astral-html 0.1.0 on Python 3.14.8, with selectolax 1.0.0,
+lxml 6.1.3, cssselect 1.5.0 and Beautiful Soup 4.15.0 (using lxml).
+Each of 20 fresh processes shuffles the workloads and calibrates batches to at least
+20 ms. Timing includes building the output, excludes file I/O, and leaves cyclic GC
+enabled. “Query on tree” starts with a parsed document and uses each library’s normal
+selector caching.
 
-The workloads are:
+| Page | Parser | Parse | Parse + links | Parse + filtered | Query on tree |
+| --- | --- | ---: | ---: | ---: | ---: |
+| PyPI | astral-html | 7.74 ± 0.04 | 14.5 ± 0.1 | 12.9 ± 0.3 | 4.13 ± 0.03 |
+| PyPI | selectolax | 62 ± 2 | 170 ± 10 | 170 ± 10 | 8.6 ± 0.1 |
+| PyPI | lxml | 56.9 ± 0.3 | 163 ± 0.5 | 161 ± 1 | 78 ± 1 |
+| PyPI | Beautiful Soup | 730 ± 20 | 930 ± 70 | 900 ± 30 | 116 ± 0.9 |
+| GitHub | astral-html | 220 ± 10 | 290 ± 20 | 310 ± 20 | 21.1 ± 0.3 |
+| GitHub | selectolax | 850 ± 30 | 1,010 ± 40 | 950 ± 30 | 27.7 ± 0.4 |
+| GitHub | lxml | 1,000 ± 8 | 1,420 ± 20 | 1,260 ± 10 | 168 ± 1 |
+| GitHub | Beautiful Soup | 11,500 ± 80 | 12,600 ± 100 | 13,300 ± 60 | 1,860 ± 20 |
+| Wikipedia | astral-html | 1,600 ± 200 | 2,500 ± 200 | 2,200 ± 200 | 362 ± 2 |
+| Wikipedia | selectolax | 3,000 ± 300 | 3,900 ± 300 | 3,600 ± 400 | 225 ± 4 |
+| Wikipedia | lxml | 4,740 ± 20 | 9,180 ± 40 | 6,230 ± 40 | 1,350 ± 40 |
+| Wikipedia | Beautiful Soup | 62,900 ± 500 | 72,500 ± 500 | 90,500 ± 800 | 27,200 ± 200 |
 
-- **Parse**: construct and drop a complete document.
-- **Parse + links**: parse and extract URLs and text for every `a[href]`.
-- **Parse + filtered CSS**: parse and extract links from a scoped selector:
-  PyPI downloads with Python requirements, GitHub repository files, or links
-  in Wikipedia article paragraphs.
-- **Filtered CSS on existing tree**: run the same filtered query and extract
-  its output against an already parsed document. The libraries use their normal
-  selector APIs, which differ in whether they cache parsed selectors.
-- **Partial parse + links**: for astral-html only, parse with `tags=["a"]` and
-  extract `a[href]`. This tests the opt-in retained-subtree mode with the same
-  output as the full parse and link extraction.
+With astral-html’s `tags=["a"]`, parse + links took 18.8 ± 0.2 µs on PyPI,
+266 ± 2 µs on GitHub, and 2,120 ± 80 µs on Wikipedia.
 
-Parsers differ in how they build trees and handle malformed HTML. Agreement is
-checked only for these fixtures and queries.
+## Retained memory
 
-## Results
+Full and partial parses alternate across seven fresh processes per mode. Each measures
+the RSS increase from retaining 64 documents, with garbage collection and `malloc_trim`
+before each reading. GitHub used 294 KiB/document (full) and 108 (partial).
+Wikipedia used 1,660 and 959. Standard errors rounded to zero at this resolution.
 
-These results use Python 3.14.8, a release build of astral-html-python 0.1.0,
-selectolax 1.0.0, lxml 6.1.3, cssselect 1.5.0, and Beautiful Soup 4.15.0. Each
-cell is the mean and standard error (SE) in microseconds per operation over 20
-process samples. The SE covers variation among those samples, though longer-term
-changes in conditions can cause additional variation.
-Means are rounded to at most three significant digits and no finer than the SE;
-SEs are rounded to one significant digit.
+## Fixture sources
 
-| Workload | Parser | PyPI (µs) | GitHub (µs) | Wikipedia (µs) |
-| --- | --- | ---: | ---: | ---: |
-| Parse | astral-html | 7.74 (SE 0.04) | 220 (SE 10) | 1,600 (SE 200) |
-| Parse | selectolax (Lexbor) | 62 (SE 2) | 850 (SE 30) | 3,000 (SE 300) |
-| Parse | lxml | 56.9 (SE 0.3) | 1,000 (SE 8) | 4,740 (SE 20) |
-| Parse | Beautiful Soup (lxml) | 730 (SE 20) | 11,500 (SE 80) | 62,900 (SE 500) |
-| Parse + links | astral-html | 14.5 (SE 0.1) | 290 (SE 20) | 2,500 (SE 200) |
-| Parse + links | selectolax (Lexbor) | 170 (SE 10) | 1,010 (SE 40) | 3,900 (SE 300) |
-| Parse + links | lxml | 163 (SE 0.5) | 1,420 (SE 20) | 9,180 (SE 40) |
-| Parse + links | Beautiful Soup (lxml) | 930 (SE 70) | 12,600 (SE 100) | 72,500 (SE 500) |
-| Parse + filtered CSS | astral-html | 12.9 (SE 0.3) | 310 (SE 20) | 2,200 (SE 200) |
-| Parse + filtered CSS | selectolax (Lexbor) | 170 (SE 10) | 950 (SE 30) | 3,600 (SE 400) |
-| Parse + filtered CSS | lxml | 161 (SE 1) | 1,260 (SE 10) | 6,230 (SE 40) |
-| Parse + filtered CSS | Beautiful Soup (lxml) | 900 (SE 30) | 13,300 (SE 60) | 90,500 (SE 800) |
-| Filtered CSS on existing tree | astral-html | 4.13 (SE 0.03) | 21.1 (SE 0.3) | 362 (SE 2) |
-| Filtered CSS on existing tree | selectolax (Lexbor) | 8.6 (SE 0.1) | 27.7 (SE 0.4) | 225 (SE 4) |
-| Filtered CSS on existing tree | lxml | 78 (SE 1) | 168 (SE 1) | 1,350 (SE 40) |
-| Filtered CSS on existing tree | Beautiful Soup (lxml) | 116 (SE 0.9) | 1,860 (SE 20) | 27,200 (SE 200) |
-| Partial parse + links | astral-html | 18.8 (SE 0.2) | 266 (SE 2) | 2,120 (SE 80) |
-
-Partial parsing was slower on PyPI in this run. The experiment below measures
-its effect on retained memory.
-
-## Retained-memory experiment
-
-On Linux with glibc, run:
-
-```console
-uv run --group benchmark python benchmarks/memory.py --fixture wikipedia
-uv run --group benchmark python benchmarks/memory.py --fixture github
-```
-
-Each sample uses a fresh process and measures the RSS increase after retaining
-64 parsed documents. This includes native allocations and allocator effects,
-but excludes the input string and extracted Python elements. The script
-collects garbage and calls `malloc_trim` before each RSS measurement; full and
-partial (`tags=["a"]`) samples alternate in order. RSS is an estimate of
-retained memory, not a peak-memory measurement.
-
-The mean (SE) over seven samples per mode was:
-
-| Fixture | Full parse (KiB/document) | Partial parse (KiB/document) |
-| --- | ---: | ---: |
-| GitHub | 294 (SE 0) | 108 (SE 0) |
-| Wikipedia | 1,660 (SE 0) | 959 (SE 0) |
-
-All seven samples gave the same RSS-derived values at the reported resolution;
-an SE of zero does not mean the measurement is exact.
+[HTML snapshots](fixtures/) are unchanged from [astral-html at b363c5e](https://github.com/astral-sh/astral-html/tree/b363c5e79fb5b896d5ac7b7bd78786fd5e9d196c).
+The [PyPI page](https://github.com/astral-sh/astral-tl/blob/04bbd94a054e164a3d057160977197ca25194bc5/benches/tl.rs)
+came via [astral-tl](fixtures/LICENSE-astral-tl), the [GitHub and Wikipedia pages](https://github.com/inikulin/parse5/tree/e65eae9a9dc27f1b7eb71868d245ca83070ccc4a/test/data/location-info)
+via [parse5](fixtures/LICENSE-parse5). Page content retains its original terms,
+including [Wikipedia contributors’ revision 592782173](https://en.wikipedia.org/w/index.php?title=42_(number)&oldid=592782173)
+under [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/).
