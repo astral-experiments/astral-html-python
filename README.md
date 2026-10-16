@@ -52,9 +52,9 @@ Parsing and queries release the GIL. Importing on free-threaded CPython currentl
 ## Performance
 
 In a captured Wikipedia page benchmark, parsing and extracting link URLs and text
-averaged 2,500 µs (standard error 200 µs) over 20 fresh processes. Retaining only
-link subtrees used about 959 KiB per document, compared with 1,660 KiB for the full
-tree. See [benchmarks](benchmarks/README.md) for the workloads, comparisons, and commands.
+averaged 1.34 ms (standard error 0.005 ms) over 12 fresh processes. The full tree
+used about 651 KiB per document. Retaining only link subtrees used 295 KiB.
+See [benchmarks](benchmarks/README.md) for the workloads, comparisons, and commands.
 
 ## Development
 

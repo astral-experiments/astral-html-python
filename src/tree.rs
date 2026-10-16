@@ -1,64 +1,82 @@
-//! A compact source-order tree built with astral-html's streaming reader.
+//! Source-order nodes link by index. Names, attributes, and text share a UTF-8 buffer.
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroU32;
 use std::ops::Range;
 
 use astral_html::{Limits, Reader, Token};
 
-pub struct Tree<'a> {
-    pub nodes: Vec<Node<'a>>,
-    attributes: Vec<(Cow<'a, str>, Cow<'a, str>)>,
+pub struct Tree {
+    pub nodes: Vec<Node>,
+    attributes: Vec<(Range<u32>, Range<u32>)>,
+    strings: String,
 }
 
-pub struct Node<'a> {
-    pub kind: Kind<'a>,
-    pub parent: Option<usize>,
-    pub end: usize,
-    pub prev_sibling: Option<usize>,
-    pub next_sibling: Option<usize>,
+pub struct Node {
+    pub kind: Kind,
+    pub parent: Option<NodeId>,
+    pub end: u32,
+    pub prev_sibling: Option<NodeId>,
+    pub next_sibling: Option<NodeId>,
 }
 
-pub enum Kind<'a> {
-    Element {
-        name: Cow<'a, str>,
-        attrs: Range<usize>,
-    },
-    Text(Cow<'a, str>),
-}
+/// One-based so an optional link occupies four bytes, including for text nodes.
+#[derive(Clone, Copy)]
+pub struct NodeId(NonZeroU32);
 
-impl Node<'_> {
-    pub fn element_name(&self) -> Option<&str> {
-        match &self.kind {
-            Kind::Element { name, .. } => Some(name),
-            Kind::Text(_) => None,
-        }
+impl NodeId {
+    fn new(index: usize) -> Self {
+        // The parser checks the node limit (four million) before creating an ID.
+        Self(NonZeroU32::new(index as u32 + 1).unwrap())
     }
+
+    pub fn index(self) -> usize {
+        (self.0.get() - 1) as usize
+    }
+}
+
+pub enum Kind {
+    Element {
+        name: Range<u32>,
+        // The input byte limit also bounds the number of attributes.
+        attrs: Range<u32>,
+    },
+    Text(Range<u32>),
 }
 
 struct Open<'a> {
     name: Cow<'a, str>,
-    retained: Option<usize>,
-    last_child: Option<usize>,
+    retained: Option<NodeId>,
+    last_child: Option<NodeId>,
     // Previous stack depth with this name, once open_names is in use.
     previous: Option<usize>,
 }
 
-impl<'a> Tree<'a> {
-    /// Full trees borrow strings from their source. Partial trees copy retained strings here.
-    pub fn parse<'input>(
-        source: &'input str,
-        tags: Option<&HashSet<String>>,
-        store: impl Fn(Cow<'input, str>) -> Cow<'a, str>,
-    ) -> Result<Self, &'static str> {
+impl Tree {
+    pub fn parse(source: &str, tags: Option<&HashSet<String>>) -> Result<Self, &'static str> {
         let limits = Limits::default();
+        if source.len() > limits.max_input_bytes {
+            return Err("HTML input exceeds the byte limit");
+        }
+        let max_nodes = limits.max_nodes.min(u32::MAX as usize);
+        let single_tag = tags
+            .filter(|tags| tags.len() == 1)
+            .and_then(|tags| tags.iter().next());
         let mut tree = Self {
             nodes: Vec::with_capacity(16),
             attributes: Vec::new(),
+            strings: String::new(),
         };
-        let mut stack: Vec<Open<'input>> = Vec::new();
+        // Retained strings share one buffer. The input limit bounds even decoded offsets.
+        let mut store = |value: &str| {
+            let start = tree.strings.len() as u32;
+            tree.strings.push_str(value);
+            start..u32::try_from(tree.strings.len()).expect("bounded by the HTML input limit")
+        };
+        let mut stack: Vec<Open<'_>> = Vec::new();
         // Like astral_html::Document, index a deep stack only when an end tag
         // mismatches the top. Repeated unmatched tags then need one lookup each.
-        let mut open_names: Option<HashMap<Cow<'input, str>, usize>> = None;
+        let mut open_names: Option<HashMap<Cow<'_, str>, usize>> = None;
         // Open elements track their last retained child; roots share one list.
         let mut last_root = None;
         for token in Reader::new(source) {
@@ -70,37 +88,40 @@ impl<'a> Tree<'a> {
                         return Err("HTML document exceeds the nesting limit");
                     }
                     let keep = parent.is_some()
-                        || tags.is_none_or(|tags| tags.contains(tag.name.as_ref()));
+                        || match single_tag {
+                            Some(name) => *name == tag.name,
+                            None => tags.is_none_or(|tags| tags.contains(tag.name.as_ref())),
+                        };
                     let index = if keep {
-                        if tree.nodes.len() >= limits.max_nodes {
+                        if tree.nodes.len() >= max_nodes {
                             return Err("HTML document exceeds the node limit");
                         }
-                        let i = tree.nodes.len();
+                        let id = NodeId::new(tree.nodes.len());
                         let previous = match stack.last_mut() {
                             Some(entry) if entry.retained.is_some() => &mut entry.last_child,
                             _ => &mut last_root,
                         };
-                        let prev_sibling = previous.replace(i);
+                        let prev_sibling = previous.replace(id);
                         if let Some(prev) = prev_sibling {
-                            tree.nodes[prev].next_sibling = Some(i);
+                            tree.nodes[prev.index()].next_sibling = Some(id);
                         }
                         let start = tree.attributes.len();
                         tree.attributes.extend(
                             tag.attributes
                                 .into_iter()
-                                .map(|attr| (store(attr.name), store(attr.value))),
+                                .map(|attr| (store(&attr.name), store(&attr.value))),
                         );
                         tree.nodes.push(Node {
                             kind: Kind::Element {
-                                name: store(tag.name.clone()),
-                                attrs: start..tree.attributes.len(),
+                                name: store(&tag.name),
+                                attrs: start as u32..tree.attributes.len() as u32,
                             },
                             parent,
-                            end: i + 1,
+                            end: id.0.get(),
                             prev_sibling,
                             next_sibling: None,
                         });
-                        Some(i)
+                        Some(id)
                     } else {
                         None
                     };
@@ -133,11 +154,11 @@ impl<'a> Tree<'a> {
                         stack.iter().rposition(|entry| entry.name == tag.name)
                     };
                     if let Some(depth) = depth {
-                        let end = tree.nodes.len();
+                        let end = tree.nodes.len() as u32;
                         // Close innermost first to restore shadowed same-name entries.
                         for entry in stack.drain(depth..).rev() {
-                            if let Some(index) = entry.retained {
-                                tree.nodes[index].end = end;
+                            if let Some(id) = entry.retained {
+                                tree.nodes[id.index()].end = end;
                             }
                             if let Some(names) = &mut open_names {
                                 if let Some(previous) = entry.previous {
@@ -153,13 +174,13 @@ impl<'a> Tree<'a> {
                 }
                 Token::Text(text) if !text.is_empty() && (tags.is_none() || parent.is_some()) => {
                     let i = tree.nodes.len();
-                    if i >= limits.max_nodes {
+                    if i >= max_nodes {
                         return Err("HTML document exceeds the node limit");
                     }
                     tree.nodes.push(Node {
-                        kind: Kind::Text(store(text)),
+                        kind: Kind::Text(store(&text)),
                         parent,
-                        end: i + 1,
+                        end: i as u32 + 1,
                         prev_sibling: None,
                         next_sibling: None,
                     });
@@ -167,24 +188,40 @@ impl<'a> Tree<'a> {
                 _ => {}
             }
         }
-        let end = tree.nodes.len();
+        let end = tree.nodes.len() as u32;
         for entry in stack {
-            if let Some(index) = entry.retained {
-                tree.nodes[index].end = end;
+            if let Some(id) = entry.retained {
+                tree.nodes[id.index()].end = end;
             }
         }
         Ok(tree)
     }
 
+    pub fn string(&self, span: &Range<u32>) -> &str {
+        &self.strings[span.start as usize..span.end as usize]
+    }
+
+    fn bytes(&self, span: &Range<u32>) -> &[u8] {
+        // Match names as bytes; only returned text needs UTF-8 boundary checks.
+        &self.strings.as_bytes()[span.start as usize..span.end as usize]
+    }
+
+    pub fn element_name(&self, index: usize) -> Option<&[u8]> {
+        match &self.nodes[index].kind {
+            Kind::Element { name, .. } => Some(self.bytes(name)),
+            Kind::Text(_) => None,
+        }
+    }
+
     pub fn descendants(&self, root: Option<usize>) -> Range<usize> {
-        root.map_or(0..self.nodes.len(), |i| i + 1..self.nodes[i].end)
+        root.map_or(0..self.nodes.len(), |i| i + 1..self.nodes[i].end as usize)
     }
 
     pub fn elements_in(
         &self,
         nodes: impl Iterator<Item = usize>,
-    ) -> impl Iterator<Item = (usize, &str)> {
-        nodes.filter_map(|i| self.nodes[i].element_name().map(|name| (i, name)))
+    ) -> impl Iterator<Item = (usize, &[u8])> {
+        nodes.filter_map(|i| self.element_name(i).map(|name| (i, name)))
     }
 
     /// Direct children, including text nodes.
@@ -192,18 +229,29 @@ impl<'a> Tree<'a> {
         let mut nodes = self.descendants(Some(index));
         std::iter::from_fn(move || {
             let i = nodes.next()?;
-            nodes.start = self.nodes[i].end;
+            nodes.start = self.nodes[i].end as usize;
             Some(i)
         })
     }
 
-    pub fn attributes(&self, index: usize) -> impl Iterator<Item = (&str, &str)> {
+    fn attribute_spans(&self, index: usize) -> &[(Range<u32>, Range<u32>)] {
         let Kind::Element { attrs, .. } = &self.nodes[index].kind else {
             unreachable!("expected an element")
         };
-        self.attributes[attrs.clone()]
+        &self.attributes[attrs.start as usize..attrs.end as usize]
+    }
+
+    pub fn attribute(&self, index: usize, matches: impl Fn(&[u8]) -> bool) -> Option<&str> {
+        self.attribute_spans(index)
             .iter()
-            .map(|(name, value)| (name.as_ref(), value.as_ref()))
+            .find(|(name, _)| matches(self.bytes(name)))
+            .map(|(_, value)| self.string(value))
+    }
+
+    pub fn attributes(&self, index: usize) -> impl Iterator<Item = (&str, &str)> {
+        self.attribute_spans(index)
+            .iter()
+            .map(|(name, value)| (self.string(name), self.string(value)))
     }
 }
 

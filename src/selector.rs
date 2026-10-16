@@ -125,7 +125,7 @@ struct SelectorShape {
 /// Scan candidates in source order, materializing only matching node indices.
 /// `root` scopes the candidates, not the ancestors a selector can inspect.
 pub fn select(
-    tree: &Tree<'_>,
+    tree: &Tree,
     root: Option<usize>,
     css: &str,
     first: bool,
@@ -140,7 +140,7 @@ pub fn select(
 // Keep the matcher's frame inside the guarded closure even under optimization.
 #[inline(never)]
 fn select_with_stack(
-    tree: &Tree<'_>,
+    tree: &Tree,
     root: Option<usize>,
     css: &str,
     first: bool,
@@ -160,12 +160,16 @@ fn select_with_stack(
     // Only a literal tag in the rightmost compound is required of every match.
     // Selector lists and selectors without a literal tag use the full matcher for each node.
     let tag = match selectors {
-        [selector] => selector.iter().find_map(|component| match component {
-            Component::LocalName(name) => Some(name.lower_name.value.as_str()),
-            _ => None,
+        [selector] => selector.iter().enumerate().find_map(|(i, component)| {
+            let Component::LocalName(name) = component else {
+                return None;
+            };
+            // Skip the tag test inside Servo only if no namespace test precedes it.
+            Some((name.lower_name.value.as_bytes(), i == 0))
         }),
         _ => None,
     };
+    let offset = usize::from(tag.is_some_and(|(_, first)| first));
     let nodes = tree.descendants(root);
     let budget = MatchBudget::new(nodes.len(), shape);
     let mut caches = matching::SelectorCaches::default();
@@ -181,7 +185,7 @@ fn select_with_stack(
     limits::with_match_limits(move || {
         let mut output = Vec::new();
         for (index, name) in tree.elements_in(nodes) {
-            if tag.is_some_and(|tag| tag != name) {
+            if tag.is_some_and(|(tag, _)| tag != name) {
                 continue;
             }
             budget.start_element(context.selector_caches);
@@ -192,7 +196,13 @@ fn select_with_stack(
             };
             if selectors.iter().any(|selector| {
                 budget.visit();
-                matching::matches_selector(selector, 0, None, &element, &mut context)
+                matching::matches_complex_selector(
+                    selector.iter_from(offset),
+                    &element,
+                    &mut context,
+                    matching::SubjectOrPseudoElement::Yes,
+                )
+                .to_bool(true)
             }) {
                 output.push(index);
                 if first {
@@ -302,28 +312,26 @@ impl ToCss for UnsupportedPseudo {
 }
 
 #[derive(Clone, Copy)]
-struct ElementRef<'tree, 'source> {
-    tree: &'tree Tree<'source>,
+struct ElementRef<'tree> {
+    tree: &'tree Tree,
     index: usize,
     budget: &'tree MatchBudget,
 }
-impl fmt::Debug for ElementRef<'_, '_> {
+impl fmt::Debug for ElementRef<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("ElementRef").field(&self.index).finish()
     }
 }
-impl<'tree, 'source> ElementRef<'tree, 'source> {
-    fn name(&self) -> &str {
-        self.tree.nodes[self.index]
-            .element_name()
+impl ElementRef<'_> {
+    fn name(&self) -> &[u8] {
+        self.tree
+            .element_name(self.index)
             .expect("expected an element")
     }
     fn attribute(&self, name: &str) -> Option<&str> {
         self.budget.visit();
         self.tree
-            .attributes(self.index)
-            .find(|(key, _)| *key == name)
-            .map(|(_, value)| value)
+            .attribute(self.index, |key| key == name.as_bytes())
     }
     fn at(&self, index: usize) -> Self {
         self.budget.visit();
@@ -331,7 +339,7 @@ impl<'tree, 'source> ElementRef<'tree, 'source> {
     }
 }
 
-impl Element for ElementRef<'_, '_> {
+impl Element for ElementRef<'_> {
     type Impl = Css;
     fn opaque(&self) -> OpaqueElement {
         self.budget.record_identity();
@@ -340,7 +348,7 @@ impl Element for ElementRef<'_, '_> {
     fn parent_element(&self) -> Option<Self> {
         self.tree.nodes[self.index]
             .parent
-            .map(|index| self.at(index))
+            .map(|id| self.at(id.index()))
     }
     fn parent_node_is_shadow_root(&self) -> bool {
         false
@@ -354,12 +362,12 @@ impl Element for ElementRef<'_, '_> {
     fn prev_sibling_element(&self) -> Option<Self> {
         self.tree.nodes[self.index]
             .prev_sibling
-            .map(|index| self.at(index))
+            .map(|id| self.at(id.index()))
     }
     fn next_sibling_element(&self) -> Option<Self> {
         self.tree.nodes[self.index]
             .next_sibling
-            .map(|index| self.at(index))
+            .map(|id| self.at(id.index()))
     }
     fn first_element_child(&self) -> Option<Self> {
         let children = self
@@ -375,7 +383,7 @@ impl Element for ElementRef<'_, '_> {
         true
     }
     fn has_local_name(&self, name: &CssName) -> bool {
-        self.name() == name.value
+        self.name() == name.value.as_bytes()
     }
     fn has_namespace(&self, namespace: &CssName) -> bool {
         namespace.value.is_empty()
@@ -412,6 +420,9 @@ impl Element for ElementRef<'_, '_> {
         }
         operation.eval_str(actual)
     }
+    fn has_attr_in_no_namespace(&self, name: &CssName) -> bool {
+        self.attribute(&name.value).is_some()
+    }
     fn match_non_ts_pseudo_class(
         &self,
         pseudo: &UnsupportedPseudo,
@@ -428,7 +439,7 @@ impl Element for ElementRef<'_, '_> {
     }
     fn apply_selector_flags(&self, _flags: ElementSelectorFlags) {}
     fn is_link(&self) -> bool {
-        matches!(self.name(), "a" | "area" | "link") && self.attribute("href").is_some()
+        matches!(self.name(), b"a" | b"area" | b"link") && self.attribute("href").is_some()
     }
     fn is_html_slot_element(&self) -> bool {
         false
@@ -454,7 +465,7 @@ impl Element for ElementRef<'_, '_> {
         false
     }
     fn is_empty(&self) -> bool {
-        self.index + 1 == self.tree.nodes[self.index].end
+        self.index + 1 == self.tree.nodes[self.index].end as usize
     }
     fn is_root(&self) -> bool {
         self.tree.nodes[self.index].parent.is_none()

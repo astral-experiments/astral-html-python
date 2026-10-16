@@ -26,7 +26,6 @@ crate-type = ["cdylib"]
 [dependencies]
 astral-html = "=0.0.3"
 pyo3 = "0.29"
-self_cell = "1.2"
 selectors = "0.41"
 cssparser = "0.38"
 precomputed-hash = "0.1"
