@@ -40,7 +40,7 @@ def test_comparisons_delegate_to_the_other_operand() -> None:
         def __ne__(self, other: object) -> bool:
             return True
 
-    (element,) = parse("<i>").elements()
+    (element,) = parse("<i>").elements("i")
     assert element == Other()
     assert (element != Other()) is True
 

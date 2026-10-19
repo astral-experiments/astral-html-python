@@ -53,13 +53,13 @@ fn select<'a>(
 
 #[pymethods]
 impl Document {
-    /// Return all retained elements in source order, optionally filtered by tag.
+    /// Return all retained elements in tree order, optionally filtered by tag.
     #[pyo3(signature = (tag=None))]
     fn elements(&self, py: Python<'_>, tag: Option<&str>) -> Vec<Element> {
         py.detach(|| elements(&self.tree, None, tag))
     }
 
-    /// Find all matching elements in source order.
+    /// Find all matching elements in tree order.
     fn select<'py>(&self, py: Python<'py>, css: &str) -> PyResult<Bound<'py, PyList>> {
         PyList::new(py, select(py, &self.tree, None, css, false)?)
     }
@@ -162,9 +162,14 @@ impl Element {
     }
 }
 
-/// Parse decoded HTML; when tags is supplied, retain only matching subtrees.
-#[pyfunction(signature = (html, *, tags=None))]
-fn parse(py: Python<'_>, html: &str, tags: Option<Bound<'_, PyAny>>) -> PyResult<Document> {
+/// Parse decoded HTML with Servo's HTML5 tree builder by default.
+#[pyfunction(signature = (html, *, tags=None, parser="servo"))]
+fn parse(
+    py: Python<'_>,
+    html: &str,
+    tags: Option<Bound<'_, PyAny>>,
+    parser: &str,
+) -> PyResult<Document> {
     let tags: Option<HashSet<String>> = match tags {
         Some(tags) => {
             if tags.cast::<PyString>().is_ok() {
@@ -185,7 +190,11 @@ fn parse(py: Python<'_>, html: &str, tags: Option<Bound<'_, PyAny>>) -> PyResult
         None => None,
     };
     let tree = py
-        .detach(|| Tree::parse(html, tags.as_ref()))
+        .detach(|| match parser {
+            "servo" => Tree::parse(html, tags.as_ref()),
+            "lexical" => Tree::parse_lexical(html, tags.as_ref()),
+            _ => Err("parser must be 'servo' or 'lexical'"),
+        })
         .map_err(PyValueError::new_err)?;
     Ok(Document {
         tree: Arc::new(tree),

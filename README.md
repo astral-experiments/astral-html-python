@@ -18,12 +18,25 @@ link.text  # 'Read the guide'
 
 ## API
 
-`parse(html)` takes a decoded string and builds a tree in source order.
-It preserves the nesting you wrote, including a `<p>` inside another `<p>`.
-It does not insert implied elements or apply browser HTML5 error recovery.
-See the [parser’s safety notes](https://github.com/astral-sh/astral-html/blob/b363c5e79fb5b896d5ac7b7bd78786fd5e9d196c/docs/safety.md).
+`parse(html)` takes a decoded string and uses [Servo's html5ever](https://github.com/servo/html5ever)
+HTML5 tree builder. The result has implied `html`, `head`, and `body` elements, and
+browser-style recovery such as closing nested paragraphs and foster parenting
+table contents. Since Python does not run page scripts, `<noscript>` fallback
+markup is parsed as elements so its links remain queryable.
+`parse(html, parser="lexical")` selects the original astral-html
+parser for direct comparisons; it keeps source nesting and does not add implied
+elements. See the [original parser's safety notes](https://github.com/astral-sh/astral-html/blob/b363c5e79fb5b896d5ac7b7bd78786fd5e9d196c/docs/safety.md).
 
-On a document or element, queries return matches in source order:
+This branch is a prototype. It parses first into `markup5ever_rcdom`, an
+[unsupported test DOM](https://docs.rs/crate/markup5ever_rcdom/0.39.0+unofficial),
+and then copies nodes into the compact query tree. It holds both trees during
+conversion, and the final tree omits comments, doctypes, and inert contents of
+`template` elements. It accepts decoded UTF-8 strings, not byte streams with
+charset detection. The original parser's limits apply to retained nodes, input
+bytes, and resulting DOM depth, but the intermediate DOM is built before node
+and depth limits can be enforced. Do not use this prototype on untrusted HTML.
+
+On a document or element, queries return matches in tree order:
 
 - `select(css)` returns a list. On an element it searches descendants,
   excluding the element itself. Use `element.select(":scope > a")` for direct children.
@@ -43,7 +56,8 @@ query results: a retained link can match `:root` and no longer match `main a`.
 CSS includes `:scope`, `:nth-child`, `:is`, `:not`, and `:has`. Unsupported
 selectors such as `:hover` raise `ValueError`, as do resource limits:
 
-- HTML: 128 MiB of UTF-8, 4 million retained nodes, 256 open elements.
+- HTML: 128 MiB of UTF-8, 4 million retained nodes, 256 DOM levels (Servo
+  prototype); 256 open elements (lexical parser). See the prototype caveat above.
 - CSS: 256 KiB of UTF-8, 32 nested blocks, 128 compounds along a selector path.
   Expensive queries can also hit a work or cache limit. No partial results are returned.
 
@@ -51,10 +65,13 @@ Parsing and queries release the GIL. Importing on free-threaded CPython currentl
 
 ## Performance
 
-In a captured Wikipedia page benchmark, parsing and extracting link URLs and text
-averaged 1.34 ms (standard error 0.005 ms) over 12 fresh processes. The full tree
-used about 651 KiB per document. Retaining only link subtrees used 295 KiB.
-See [benchmarks](benchmarks/README.md) for the workloads, comparisons, and commands.
+The original [scraping benchmarks](benchmarks/README.md) describe the lexical
+parser (`parser="lexical"` on this branch), including its old retained-memory
+figures. In a same-build comparison on 40 public pages, the Servo default
+requires 130.075 ms to parse the pages versus 17.559 ms for the lexical parser
+(sum of per-page medians). See the [Servo prototype report](benchmarks/SERVO_PROTOTYPE.md)
+for the corpus, correctness results, methodology, reproducible commands,
+and the substantial performance and resource-limit tradeoffs.
 
 ## Development
 

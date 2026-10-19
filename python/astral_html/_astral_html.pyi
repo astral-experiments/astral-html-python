@@ -1,7 +1,12 @@
 from collections.abc import Iterable
-from typing import Never, final, overload
+from typing import Literal, Never, final, overload
 
-def parse(html: str, *, tags: Iterable[str] | None = None) -> Document: ...
+def parse(
+    html: str,
+    *,
+    tags: Iterable[str] | None = None,
+    parser: Literal["servo", "lexical"] = "servo",
+) -> Document: ...
 
 @final
 class Document:

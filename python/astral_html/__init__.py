@@ -1,4 +1,4 @@
-"""A Rust-backed, source-order HTML parser for scraping."""
+"""A Rust-backed HTML5 parser and selector engine for scraping."""
 
 from ._astral_html import Document, Element, parse
 

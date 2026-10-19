@@ -60,7 +60,9 @@ def exercise_stack_limits() -> None:
     # :has() recurses through the tree as well as through the selector.
     for wrappers in (0, 31):
         depth = 125 - wrappers
-        doc = parse("<main>" + "<div>" * 254 + "<i></i>" * depth + "<x></x>")
+        doc = parse(
+            "<main>" + "<div>" * 254 + "<i></i>" * depth + "<x></x>", parser="lexical"
+        )
         for step in ("i+", "div>"):
             selector = (
                 ":is(" * wrappers
@@ -79,7 +81,7 @@ def test_wide_lists_and_long_compounds_fit_the_depth_budget() -> None:
     doc = parse(f'<p class="x" data-value="{value}"></p>')
     wide = ",".join(["p"] * 512)
     for selector in (wide, f":is({wide})", ".x" * 512, f'[data-value="{value}"]'):
-        assert doc.select(selector) == doc.elements()
+        assert doc.select(selector) == doc.elements("p")
 
 
 def test_work_limit_discards_matches_and_allows_subsequent_queries() -> None:

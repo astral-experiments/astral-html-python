@@ -1,10 +1,12 @@
-//! Source-order nodes link by index. Names, attributes, and text share a UTF-8 buffer.
+//! Depth-first nodes link by index. Names, attributes, and text share a UTF-8 buffer.
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU32;
 use std::ops::Range;
 
 use astral_html::{Limits, Reader, Token};
+
+mod servo;
 
 pub struct Tree {
     pub nodes: Vec<Node>,
@@ -53,7 +55,10 @@ struct Open<'a> {
 }
 
 impl Tree {
-    pub fn parse(source: &str, tags: Option<&HashSet<String>>) -> Result<Self, &'static str> {
+    pub fn parse_lexical(
+        source: &str,
+        tags: Option<&HashSet<String>>,
+    ) -> Result<Self, &'static str> {
         let limits = Limits::default();
         if source.len() > limits.max_input_bytes {
             return Err("HTML input exceeds the byte limit");

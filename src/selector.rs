@@ -1,4 +1,4 @@
-//! Servo selector matching over the source-order tree.
+//! Servo selector matching over the depth-first tree.
 
 use std::{borrow::Cow, fmt, ops::Range};
 
@@ -122,7 +122,7 @@ struct SelectorShape {
     components: usize,
 }
 
-/// Scan candidates in source order, materializing only matching node indices.
+/// Scan candidates in tree order, materializing only matching node indices.
 /// `root` scopes the candidates, not the ancestors a selector can inspect.
 pub fn select(
     tree: &Tree,

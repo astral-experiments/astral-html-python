@@ -9,7 +9,7 @@ def test_parse_and_traverse() -> None:
         '<main>Hello <a HREF="/guide?x=1&amp;y=2" href="ignored" disabled>'
         "Read <strong>the guide</strong></a>!</main>"
     )
-    main, link, bold = document.elements()
+    main, link, bold = document.select("main, a, strong")
     assert (main.tag, link.tag, bold.tag) == ("main", "a", "strong")
     assert main.text == "Hello Read the guide!"
     assert main.children == document.elements("A") == [link]
@@ -27,7 +27,9 @@ def test_parse_and_traverse() -> None:
 
 
 def test_lexical_scopes_and_text_modes() -> None:
-    document = parse("<P>one<p>two<script>if (a < b) x = '&amp;';</script>")
+    document = parse(
+        "<P>one<p>two<script>if (a < b) x = '&amp;';</script>", parser="lexical"
+    )
     outer, inner = document.elements("p")
     assert inner.parent == outer
     assert outer.text == "onetwoif (a < b) x = '&amp;';"
@@ -35,7 +37,7 @@ def test_lexical_scopes_and_text_modes() -> None:
 
 
 def test_newlines_are_normalized_in_text_and_attributes() -> None:
-    (paragraph,) = parse('<p title="a\r\nb\rc">a\r\nb\rc</p>').elements()
+    (paragraph,) = parse('<p title="a\r\nb\rc">a\r\nb\rc</p>').elements("p")
     assert paragraph.text == paragraph.get("title") == "a\nb\nc"
 
 
@@ -44,7 +46,7 @@ def test_malformed_end_tags_void_elements_and_self_closing_scopes() -> None:
         "<main><a>start <em>inner</main>tail</em>"
         '<section><input value="&amp;"><a><span/>x</a>outside</section>'
     )
-    full = parse(source)
+    full = parse(source, parser="lexical")
     main, first, _, section, field, second, span = full.elements()
     assert first.parent == main
     assert section.children == [field, second]
@@ -52,7 +54,7 @@ def test_malformed_end_tags_void_elements_and_self_closing_scopes() -> None:
     assert field.get("value") == "&"
     assert span.text == "x"
 
-    partial = parse(source, tags=["a"])
+    partial = parse(source, tags=["a"], parser="lexical")
     assert [e.tag for e in partial.elements()] == ["a", "em", "a", "span"]
     for doc in (full, partial):
         assert [e.text for e in doc.elements("a")] == ["start inner", "x"]
@@ -67,7 +69,9 @@ def test_deep_mismatched_end_tags_close_innermost_scope(tags: list[str] | None) 
         + "</p>between<p>second<b>child</p><b>last</p>outside"
         + "<p>third<i>child</div>outside<p>fourth"
     )
-    outer, first, second, third, fourth = parse(source, tags=tags).elements("p")
+    outer, first, second, third, fourth = parse(
+        source, tags=tags, parser="lexical"
+    ).elements("p")
     assert (first.text, second.text) == ("firstchild", "secondchild")
     assert outer.text == "outerfirstchildbetweensecondchildlast"
     assert outer.elements("p") == [first, second]
@@ -80,7 +84,7 @@ def test_rcdata_and_raw_text(tags: list[str] | None) -> None:
     doc = parse(
         "<textarea>&amp; <b>x</b></textarea><style>&amp; <b>x</b></style>", tags=tags
     )
-    textarea, style = doc.elements()
+    textarea, style = doc.elements("textarea")[0], doc.elements("style")[0]
     assert textarea.text == "& <b>x</b>"
     assert style.text == "&amp; <b>x</b>"
 
@@ -139,15 +143,16 @@ def test_partial_parse_preserves_real_page_links(page: str, link_count: int) -> 
 def test_input_limits_include_discarded_content() -> None:
     source = "é" * (64 * 1024 * 1024 + 1)
     for tags in (None, ["a"]):
-        parse("<div>" * 256 + "<br>", tags=tags)
+        parse("<div>" * 256 + "<br>", tags=tags, parser="lexical")
         with pytest.raises(ValueError, match="nesting limit"):
-            parse("<div>" * 257, tags=tags)
+            parse("<div>" * 257, tags=tags, parser="lexical")
         with pytest.raises(ValueError, match="byte limit"):
-            parse(source, tags=tags)
+            parse(source, tags=tags, parser="lexical")
 
 
 def test_empty_document_and_invalid_input() -> None:
-    assert parse("").elements() == []
+    assert [element.tag for element in parse("").elements()] == ["html", "head", "body"]
+    assert parse("", parser="lexical").elements() == []
     with pytest.raises(TypeError):
         parse(b"<p>bytes</p>")  # ty: ignore[invalid-argument-type]
     with pytest.raises(TypeError):
