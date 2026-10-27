@@ -10,16 +10,10 @@ A very fast Rust HTML parser with CSS queries for Python, built for scraping.
 It uses the [astral-html tokenizer](https://github.com/astral-sh/astral-html)
 and builds its own tree in Rust. Python receives element handles on demand.
 
-[![Time to extract links from PyPI, GitHub, and Wikipedia pages. astral-html-python had the lowest mean time on all three.](benchmarks/filtered-links.png)](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/filtered-links.png)
+![Mean scrape time for four parsers. astral-html-python had the lowest mean on the PyPI, GitHub, and Wikipedia pages.](benchmarks/filtered-links.png)
 
-This benchmark extracts the same ordered `(href, descendant text)` pairs from
-UTF-8 bytes for a PyPI package index, a GitHub file listing, and a Wikipedia
-article. On the GitHub page, for example, parsing and extracting seven file or
-directory links took 268 µs with this library and 391 µs with selectolax (Lexbor).
-The plot shows the mean time per scrape, with error bars of one standard error
-across 12 fresh worker processes. Disk and network I/O are outside the timer.
-[Benchmark details](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/README.md)
-and [plot data](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/filtered-links.json).
+Each scrape parses in-memory HTML and extracts link URLs and text with CSS.
+Error bars show ±1 standard error across 12 processes. [Benchmark details](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/README.md).
 
 ## Quick start
 
