@@ -1,10 +1,10 @@
+# astral-html-python
+
 > [!WARNING]
 >
 > This project is an experiment in developing a library using Codex. The content below the line, as well as all the code, are written by Codex.
 
 ---
-
-# astral-html-python
 
 A very fast Rust HTML parser with CSS queries for Python, built for scraping.
 It uses the [astral-html tokenizer](https://github.com/astral-sh/astral-html)
