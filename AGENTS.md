@@ -1,6 +1,6 @@
 # Project automation
 
 This project is automated. Open a pull request for each improvement, review the
-diff, and fix any findings. Once the checks pass, you may merge the PR into
-`main` without waiting for a separate instruction. Verify CI on the resulting
-`main` commit and follow up through a PR if a check fails.
+diff, and fix any findings. After review, you may merge the PR into `main`
+without additional permission, even before PR CI finishes. Verify CI on the
+resulting `main` commit. If CI fails, promptly fix the cause in a follow-up PR.
