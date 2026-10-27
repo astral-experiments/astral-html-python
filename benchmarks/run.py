@@ -24,6 +24,7 @@ FIXTURES = {
     "github": ("github-parse5.html", "table.files tr > td.content a[href]"),
     "wikipedia": ("wiki-42.html", '#mw-content-text > p a[href^="/wiki/"]'),
 }
+ALL_LINKS = "a[href]"
 
 
 def lexbor_links(doc, css):
@@ -43,44 +44,59 @@ def soup_links(doc, css):
 
 
 PARSERS = [
-    ("astral-html", astral_html.parse, astral_links),
+    ("astral-html", lambda raw: astral_html.parse(raw.decode("utf-8")), astral_links),
     ("selectolax (Lexbor)", LexborHTMLParser, lexbor_links),
     ("lxml", html.fromstring, lxml_links),
     ("Beautiful Soup", partial(BeautifulSoup, features="lxml"), soup_links),
-    ("astral-html partial", partial(astral_html.parse, tags=["a"]), astral_links),
+    (
+        "astral-html partial",
+        lambda raw: astral_html.parse(raw.decode("utf-8"), tags=["a"]),
+        astral_links,
+    ),
 ]
 
 
-def workloads(source, selector):
-    queries = {"links": "a[href]", "filtered": selector}
-    reference = LexborHTMLParser(source)
-    expected = {css: lexbor_links(reference, css) for css in queries.values()}
+def parse_and_extract(read, links, css):
+    return links(read(), css)
+
+
+def workloads(source, filtered_css):
+    reference = LexborHTMLParser(source.decode("utf-8"))
+    expected = {css: lexbor_links(reference, css) for css in (ALL_LINKS, filtered_css)}
+    jobs = []
     for name, parse, links in PARSERS:
         read = partial(parse, source)
-        doc = read()
-        for label, css in queries.items():
-            if css == selector:
-                if name == "astral-html partial":
-                    continue  # The filtered selector needs ancestors we discarded.
-                yield f"{name} | parse", read
-                yield f"{name} | filtered, existing tree", partial(links, doc, css)
-            if not expected[css] or links(doc, css) != expected[css]:
-                raise ValueError(f"{name}: {css!r} links differ from Lexbor's")
-            yield (
-                f"{name} | parse + {label}",
-                lambda read=read, links=links, css=css: links(read(), css),
+        extract = partial(parse_and_extract, read, links)
+        queries = [("parse + all links", extract, ALL_LINKS)]
+        # Filtered selectors need ancestors discarded by partial parsing.
+        if name != "astral-html partial":
+            jobs.append((f"{name} | parse", read))
+            existing = partial(links, read())
+            queries.extend(
+                [
+                    ("parse + filtered links", extract, filtered_css),
+                    ("filtered links, existing tree", existing, filtered_css),
+                ]
             )
+        for label, query, css in queries:
+            run = partial(query, css)
+            if not expected[css] or run() != expected[css]:
+                raise ValueError(f"{name}: {css!r} links differ from Lexbor's")
+            jobs.append((f"{name} | {label}", run))
+    return jobs
 
 
 def timings(source, selector, min_ms, seed):
-    jobs = list(workloads(source, selector))  # Check all outputs before timing.
+    jobs = workloads(source, selector)  # Check all outputs before timing.
     times = dict.fromkeys((label for label, _ in jobs), 0.0)
     random.Random(seed).shuffle(jobs)
+    target = min_ms / 1000
     for label, run in jobs:
         # Timer normally disables GC. Keep it enabled, including for cyclic trees.
         timer = Timer(run, setup=gc.enable)
+        gc.collect()
         count = 1
-        while timer.timeit(count) < min_ms / 1000:
+        while timer.timeit(count) < target:
             count *= 2
         gc.collect()
         times[label] = timer.timeit(count) * 1e6 / count
@@ -108,7 +124,11 @@ def main():
     cli.add_argument(
         "--samples", type=int, help="fresh processes (default 20, or 7 for RSS)"
     )
-    cli.add_argument("--memory", action="store_true", help="RSS per retained document")
+    mode = cli.add_mutually_exclusive_group()
+    mode.add_argument("--memory", action="store_true", help="RSS per retained document")
+    mode.add_argument(
+        "--check", action="store_true", help="check outputs without timing"
+    )
     cli.add_argument("--min-sample-ms", type=float, default=20)
     args = cli.parse_args()
     n = (7 if args.memory else 20) if args.samples is None else args.samples
@@ -125,13 +145,18 @@ def main():
     versions = ", ".join(f"{p} {version(p)}" for p in packages)
     print(f"Python {platform.python_version()}, {versions}")
     unit = "KiB/document" if args.memory else "µs"
-    print(f"\n| Fixture | Parser | Workload | Mean ± SE ({unit}, {n} processes) |")
-    print("| --- | --- | --- | ---: |")
+    if not args.check:
+        print(f"\n| Fixture | Parser | Workload | Mean ± SE ({unit}, {n} processes) |")
+        print("| --- | --- | --- | ---: |")
     for page in args.fixture or FIXTURES:
         filename, selector = FIXTURES[page]
-        source = (Path(__file__).parent / "fixtures" / filename).read_bytes().decode()
+        source = (Path(__file__).parent / "fixtures" / filename).read_bytes()
+        if args.check:
+            workloads(source, selector)
+            print(f"{page}: all extraction outputs match Lexbor")
+            continue
         if args.memory:
-            worker = partial(memory, source)
+            worker = partial(memory, source.decode("utf-8"))
             modes = ("full", "partial")
             jobs = [m for i in range(n) for m in (modes[::-1] if i % 2 else modes)]
         else:

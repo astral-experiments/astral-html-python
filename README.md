@@ -51,10 +51,11 @@ Parsing and queries release the GIL. Importing on free-threaded CPython currentl
 
 ## Performance
 
-In a captured Wikipedia page benchmark, parsing and extracting link URLs and text
-averaged 1.34 ms (standard error 0.005 ms) over 12 fresh processes. The full tree
-used about 651 KiB per document. Retaining only link subtrees used 295 KiB.
-See [benchmarks](benchmarks/README.md) for the workloads, comparisons, and commands.
+On the captured Wikipedia article, parsing UTF-8 response bytes and extracting
+1,603 link URL/text pairs took 1.65 ± 0.02 ms (mean ± standard error across
+12 processes). The benchmark report includes the PyPI and GitHub results,
+comparisons with other parsers, and incremental RSS measurements for full and
+partial trees. See the [measurements and reproduction commands](https://github.com/konsti-openai/astral-html-python/blob/main/benchmarks/README.md).
 
 ## Development
 
