@@ -85,5 +85,5 @@ before reaching the limit.
 
 ## Threads
 
-Parsing and searches release the GIL during native tree work. Importing the
-module on free-threaded CPython currently enables the GIL.
+Parsing and searches release the GIL during native tree work. On free-threaded
+CPython, importing this module enables the GIL by default.
