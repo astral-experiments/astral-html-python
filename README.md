@@ -1,22 +1,36 @@
+This project is an experiment in developing a library using Codex. The content below the line, as well as all the code, are written by Codex.
+
+---
+
 # astral-html-python
 
-Extract text, attributes, and links from HTML using CSS selectors. The tree
-stays in Rust, and Python receives element handles on demand. A handle keeps
-its tree alive even after you drop the document. The parser uses
-[Astral’s HTML tokenizer](https://github.com/astral-sh/astral-html).
+A very fast Rust HTML parser with CSS queries for Python, built for scraping.
+It uses the [astral-html tokenizer](https://github.com/astral-sh/astral-html)
+and builds its own tree in Rust. Python receives element handles on demand.
+
+[![Time to extract links from PyPI, GitHub, and Wikipedia pages. astral-html-python had the lowest mean time on all three.](benchmarks/filtered-links.png)](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/filtered-links.png)
+
+This benchmark extracts the same ordered `(href, descendant text)` pairs from
+UTF-8 bytes for a PyPI package index, a GitHub file listing, and a Wikipedia
+article. On the GitHub page, for example, parsing and extracting seven file or
+directory links took 268 µs with this library and 391 µs with selectolax (Lexbor).
+The plot shows the mean time per scrape, with error bars of one standard error
+across 12 fresh worker processes. Disk and network I/O are outside the timer.
+[Benchmark details](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/README.md)
+and [plot data](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/filtered-links.json).
 
 ## Quick start
 
-From a checkout with Rust 1.97 or newer, install the package for CPython 3.14
-or 3.15. For example, to start a Python 3.14 session, run
+From a checkout, install Rust 1.97 or newer and use `uv` with CPython 3.14 or
+3.15. For example, start a Python 3.14 session with
 
 ```sh
 uv sync --locked --python 3.14
 uv run python
 ```
 
-`parse` takes a decoded Python string. If you have response bytes, decode them
-using the page’s encoding first. This example uses UTF-8.
+Parse a page and extract links with a CSS query. Decode response bytes using the
+page's encoding before parsing. This example uses UTF-8.
 
 ```python
 from astral_html import parse
@@ -27,84 +41,8 @@ links = [(a.get("href"), a.text) for a in doc.select("main a[href]")]
 assert links == [("/guide", "Read the guide")]
 ```
 
-## API
-
-| On a document or element | Result |
-| --- | --- |
-| `select(css)` | List of matching elements in source order. |
-| `select_one(css)` | First matching element, or `None`. |
-| `elements(tag=None)` | List of elements in source order, optionally filtered by tag. |
-
-On an element, all three methods search descendants and exclude the element
-itself. A CSS selector can still match against ancestors outside that element.
-Use `element.select(":scope > a[href]")` for its direct link children.
-
-- `tag`, `parent`, and `children` expose the tag name, parent element (or
-  `None`), and direct child elements. Handles compare and hash by node identity.
-- `get(name, default=None)` reads one attribute. `attrs` returns a fresh
-  dictionary. Names are ASCII-lowercased and the first duplicate attribute wins.
-- `text` joins descendant text in source order without inserting spaces. The
-  tokenizer normalizes newlines and decodes character references except in raw
-  text such as `script`.
-
-### Parsing and selector behavior
-
-The tree follows the nesting in the source. For example, `<p>one<p>two`
-produces a paragraph inside a paragraph. Browser HTML5 tree construction can
-close the first paragraph or insert implied elements. See the
-[upstream parser notes](https://github.com/astral-sh/astral-html/blob/b363c5e79fb5b896d5ac7b7bd78786fd5e9d196c/docs/safety.md).
-
-Supported selectors include `:scope`, `:nth-child`, `:is`, `:not`, and
-`:has`. An unsupported selector such as `:hover` raises `ValueError` on its
-own. The forgiving lists in `:is()` and `:where()` discard unsupported
-alternatives, so `:is(a, :hover)` still matches `a` elements.
-
-### Retaining selected subtrees
-
-The experimental `tags` argument accepts an iterable of tag names, such as
-`["a"]`. The parser scans the whole input and retains each matching element
-and its descendants. Discarding ancestors changes the selectors you can use.
-With the same response body as above,
-
-```python
-links_only = parse(body.decode("utf-8"), tags=["a"])
-assert [a.text for a in links_only.select("a[href]")] == ["Read the guide"]
-assert links_only.select("main a") == []
-assert len(links_only.select(":root")) == 2
-```
-
-Use a collection or iterator of names even for a single tag. An empty
-collection retains no elements.
-
-### Limits
-
-- HTML input is limited to 128 MiB of UTF-8, four million retained nodes, and
-  256 simultaneously open non-void elements.
-- CSS input is limited to 256 KiB of UTF-8, 32 nested blocks, and 128
-  compounds along a matching path. A query that exceeds a work or cache limit
-  raises `ValueError` and discards its partial results.
-
-Parsing and queries release the GIL. Importing on free-threaded CPython currently enables it.
-
-## Performance
-
-On the captured Wikipedia article, parsing UTF-8 response bytes and extracting
-1,603 link URL/text pairs took 1,610 ± 5 µs (mean ± standard error across
-12 processes). The benchmark report includes the PyPI and GitHub results,
-comparisons with other parsers, and incremental RSS measurements for full and
-partial trees. See the [measurements and reproduction commands](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/README.md).
-
-## Development
-
-```sh
-uv run pytest
-uv run ruff check . && uv run ruff format --check . && uv run ty check
-cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings
-```
-
-CI builds a wheel from the source distribution and tests the installed package
-on both supported Python versions. See the
-[CI workflow](https://github.com/astral-experiments/astral-html-python/blob/main/.github/workflows/ci.yml).
-The package version comes from `Cargo.toml`.
+See [parsing and CSS queries](https://github.com/astral-experiments/astral-html-python/blob/main/docs/parsing.md)
+for the API, tree behavior, and limits. See the [development guide](https://github.com/astral-experiments/astral-html-python/blob/main/docs/development.md)
+for tests and contributor setup.
 
 Licensed under MIT or Apache-2.0.

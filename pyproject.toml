@@ -20,7 +20,7 @@ classifiers = [
 ]
 
 [project.urls]
-Documentation = "https://github.com/astral-experiments/astral-html-python#api"
+Documentation = "https://github.com/astral-experiments/astral-html-python/blob/main/docs/parsing.md"
 Source = "https://github.com/astral-experiments/astral-html-python"
 Issues = "https://github.com/astral-experiments/astral-html-python/issues"
 
