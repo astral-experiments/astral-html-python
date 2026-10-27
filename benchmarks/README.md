@@ -75,11 +75,10 @@ and CPython 3.14.8. Other libraries were selectolax 1.0.0 (Lexbor), lxml
 | Wikipedia | lxml | 4,450 ± 10 | 8,780 ± 40 | 5,930 ± 60 | 1,310 ± 7 |
 | Wikipedia | Beautiful Soup | 81,900 ± 400 | 90,300 ± 300 | 110,000 ± 1,000 | 26,900 ± 300 |
 
-The project README plots **Parse + filtered links** as scrapes per second, with
-a separate zero-based scale for each page. The rate is 1,000,000 divided by the
-mean time in microseconds. The whiskers use the same conversion on the two ends
-of the mean ± one standard error interval, so they can be asymmetric. To redraw
-the chart from the [recorded means and standard errors](filtered-links.json), run
+The project README plots the **Parse + filtered links** column. Each page has
+its own zero-based time axis. Bars show the mean in microseconds and whiskers
+span one standard error on either side. To redraw the chart from the
+[recorded means and standard errors](filtered-links.json), run
 `uv run --script benchmarks/plot.py` from the repository root.
 
 Retaining only `a` subtrees and extracting all links took 14.5 ± 0.2 µs on

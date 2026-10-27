@@ -13,13 +13,13 @@ and builds its own tree in Rust. Python receives element handles on demand.
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="benchmarks/filtered-links-dark.png">
-    <img src="benchmarks/filtered-links.png" width="660" alt="Bar chart of scrapes per second. astral-html-python had the highest rate of the four parsers on the PyPI, GitHub, and Wikipedia pages.">
+    <img src="benchmarks/filtered-links.png" width="660" alt="Mean scrape time for four parsers. astral-html-python took the least time on the Wikipedia, PyPI, and GitHub pages.">
   </picture>
 </p>
 
 Each parser reads the same HTML from memory and uses CSS queries to extract link
-URLs and text in document order. Each page uses its own scale. Whiskers show mean
-time ±1 standard error across 12 fresh processes, converted to scrapes per second. [Benchmark details](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/README.md).
+URLs and text in document order. Each page uses its own time scale. Error bars
+show ±1 standard error across 12 fresh processes. [Benchmark details](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/README.md).
 
 ## Quick start
 
