@@ -9,7 +9,6 @@ description = "A Rust-backed HTML parser and CSS selector engine for Python"
 requires-python = ">=3.14,<3.16"
 license = "MIT OR Apache-2.0"
 license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
-readme = "README.md"
 classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.14",
@@ -19,8 +18,24 @@ classifiers = [
     "Typing :: Typed",
 ]
 
+[project.readme]
+content-type = "text/markdown"
+text = """
+This project is an experiment in developing a library using Codex. The content below the line, as well as all the code, are written by Codex.
+
+---
+
+astral-html-python is a fast HTML parser for Python web scrapers. It uses the
+[astral-html](https://github.com/astral-sh/astral-html) tokenizer and a Rust
+tree to find elements by CSS selector and extract their text and attributes.
+
+[Quick start](https://github.com/astral-experiments/astral-html-python#quick-start) ·
+[Benchmark plot](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/filtered-links.png) ·
+[Benchmark results](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/README.md)
+"""
+
 [project.urls]
-Documentation = "https://github.com/astral-experiments/astral-html-python#api"
+Documentation = "https://github.com/astral-experiments/astral-html-python/blob/main/docs/parsing.md"
 Source = "https://github.com/astral-experiments/astral-html-python"
 Issues = "https://github.com/astral-experiments/astral-html-python/issues"
 

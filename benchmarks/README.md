@@ -75,6 +75,10 @@ and CPython 3.14.8. Other libraries were selectolax 1.0.0 (Lexbor), lxml
 | Wikipedia | lxml | 4,450 ± 10 | 8,780 ± 40 | 5,930 ± 60 | 1,310 ± 7 |
 | Wikipedia | Beautiful Soup | 81,900 ± 400 | 90,300 ± 300 | 110,000 ± 1,000 | 26,900 ± 300 |
 
+The project README plots the **Parse + filtered links** column. To redraw it
+from the [recorded means and standard errors](filtered-links.json), run
+`uv run --script benchmarks/plot.py` from the repository root.
+
 Retaining only `a` subtrees and extracting all links took 14.5 ± 0.2 µs on
 PyPI, 233 ± 1 µs on GitHub, and 1,520 ± 20 µs on Wikipedia. The filtered
 selectors rely on ancestors dropped by partial parsing.
