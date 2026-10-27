@@ -37,7 +37,7 @@ assert links == [("/guide", "Read the guide")]
 
 On an element, all three methods search descendants and exclude the element
 itself. A CSS selector can still match against ancestors outside that element.
-Use `element.select(":scope > a")` for its direct link children.
+Use `element.select(":scope > a[href]")` for its direct link children.
 
 - `tag`, `parent`, and `children` expose the tag name, parent element (or
   `None`), and direct child elements. Handles compare and hash by node identity.
@@ -57,7 +57,7 @@ close the first paragraph or insert implied elements. See the
 Supported selectors include `:scope`, `:nth-child`, `:is`, `:not`, and
 `:has`. An unsupported selector such as `:hover` raises `ValueError` on its
 own. The forgiving lists in `:is()` and `:where()` discard unsupported
-alternatives, so `:is(a, :hover)` still matches links.
+alternatives, so `:is(a, :hover)` still matches `a` elements.
 
 ### Retaining selected subtrees
 
@@ -104,5 +104,6 @@ cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings
 CI builds a wheel from the source distribution and tests the installed package
 on both supported Python versions. See the
 [CI workflow](https://github.com/konsti-openai/astral-html-python/blob/main/.github/workflows/ci.yml).
+The package version comes from `Cargo.toml`.
 
 Licensed under MIT or Apache-2.0.
