@@ -100,17 +100,18 @@ impl Element {
     #[getter]
     fn text(&self) -> Cow<'_, str> {
         let tree = &self.tree;
-        let nodes = &tree.nodes[tree.descendants(Some(self.index))];
-        let mut text = String::new();
-        for node in nodes {
-            if let Kind::Text(segment) = &node.kind {
-                let segment = tree.string(segment);
-                if nodes.len() == 1 {
-                    return Cow::Borrowed(segment);
-                }
-                text.push_str(segment);
-            }
-        }
+        let mut segments = tree.nodes[tree.descendants(Some(self.index))]
+            .iter()
+            .filter_map(|node| match &node.kind {
+                Kind::Text(segment) => Some(tree.string(segment)),
+                _ => None,
+            });
+        let first = segments.next().unwrap_or("");
+        let Some(second) = segments.next() else {
+            return Cow::Borrowed(first);
+        };
+        let mut text = [first, second].concat();
+        text.extend(segments);
         Cow::Owned(text)
     }
 
