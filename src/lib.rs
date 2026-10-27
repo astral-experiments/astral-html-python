@@ -20,11 +20,13 @@ impl Tree {
     }
 }
 
+/// A parsed HTML tree. Its elements are returned in source order.
 #[pyclass(module = "astral_html", frozen)]
 struct Document {
     tree: Arc<Tree>,
 }
 
+/// A handle to a node that keeps its parsed tree alive.
 #[pyclass(module = "astral_html", frozen)]
 struct Element {
     tree: Arc<Tree>,
@@ -72,6 +74,7 @@ impl Document {
 
 #[pymethods]
 impl Element {
+    /// The ASCII-lowercased tag name.
     #[getter]
     fn tag(&self) -> &str {
         let name = self
@@ -81,11 +84,13 @@ impl Element {
         std::str::from_utf8(name).expect("tag names are UTF-8")
     }
 
+    /// A new dictionary of attributes. Changes to it do not affect the tree.
     #[getter]
     fn attrs<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         self.tree.attributes(self.index).into_py_dict(py)
     }
 
+    /// Look up an attribute by ASCII-insensitive name, returning default if absent.
     #[pyo3(signature = (name, default=None))]
     fn get(&self, py: Python<'_>, name: &str, default: Option<Py<PyAny>>) -> Py<PyAny> {
         match self
@@ -97,6 +102,7 @@ impl Element {
         }
     }
 
+    /// Descendant text in source order, joined without inserting spaces.
     #[getter]
     fn text(&self) -> Cow<'_, str> {
         let tree = &self.tree;
@@ -114,6 +120,7 @@ impl Element {
         Cow::Owned(text)
     }
 
+    /// The parent element, or None for a root of the retained tree.
     #[getter]
     fn parent(&self) -> Option<Self> {
         self.tree.nodes[self.index]
@@ -121,6 +128,7 @@ impl Element {
             .map(|id| self.tree.element(id.index()))
     }
 
+    /// Direct child elements in source order.
     #[getter]
     fn children(&self) -> Vec<Self> {
         let tree = &self.tree;
@@ -129,15 +137,18 @@ impl Element {
             .collect()
     }
 
+    /// List descendant elements, optionally filtered by tag name.
     #[pyo3(signature = (tag=None))]
     fn elements(&self, py: Python<'_>, tag: Option<&str>) -> Vec<Self> {
         py.detach(|| elements(&self.tree, Some(self.index), tag))
     }
 
+    /// Find matching descendants. Use :scope in the selector to refer to this element.
     fn select<'py>(&self, py: Python<'py>, css: &str) -> PyResult<Bound<'py, PyList>> {
         PyList::new(py, select(py, &self.tree, Some(self.index), css, false)?)
     }
 
+    /// Find the first matching descendant in source order, or None.
     fn select_one(&self, py: Python<'_>, css: &str) -> PyResult<Option<Self>> {
         Ok(select(py, &self.tree, Some(self.index), css, true)?.next())
     }
