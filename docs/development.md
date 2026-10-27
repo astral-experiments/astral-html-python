@@ -6,13 +6,13 @@ Run these commands from the repository root with Rust 1.97 or newer. The
 project supports CPython 3.14 and 3.15. This example selects 3.14.
 
 ```sh
-uv sync --locked --python 3.14 --group benchmark
-uv run --no-sync pytest
-uv run --no-sync ruff check .
-uv run --no-sync ruff format --check .
-uv run --no-sync ty check
+uv sync --locked --python 3.14
+uv run --locked pytest
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+uv run --locked --group benchmark ty check
 cargo fmt --check
-uv run --no-sync cargo clippy --locked --all-targets -- -D warnings
+uv run --locked cargo clippy --locked --all-targets -- -D warnings
 ```
 
 ## Testing the wheel
