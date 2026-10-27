@@ -21,10 +21,14 @@ The tree can have several roots. Text outside those roots is discarded.
 The tree stays in Rust. Queries create Python handles for the elements they
 return.
 
-`select(css)` and `elements(tag=None)` return lists in source order.
-`select_one(css)` returns the first match, or `None`. On an element, all three
-methods search only its descendants. A selector can still use ancestors above
-that element when deciding whether a descendant matches.
+`elements()` lists all elements in source order. Pass a tag name to filter
+the list. For example, `elements("a")` returns only anchors. `select(css)`
+returns all CSS matches in source order. Use `select_one(css)` when you need
+only the first match. It returns `None` if nothing matches.
+
+On an element, all three methods search its descendants. A selector can still
+use ancestors above that element when deciding whether a descendant matches.
+Use `:scope` to refer to the element you called the method on.
 
 ```python
 from astral_html import parse
@@ -43,9 +47,10 @@ assert link.text == "Read the guide"
   `None`), and direct child elements. Handles to the same node compare equal
   and have the same hash. Each handle keeps its tree alive.
 - `get(name, default=None)` reads one attribute and returns the default when
-  the attribute is absent. `attrs` returns a fresh dictionary. ASCII letters
-  in tag and attribute names are lowercased, and the first duplicate attribute
-  wins.
+  the attribute is absent. For example, `link.get("href")` above returns
+  `"/guide"`. A relative URL stays relative. `attrs` returns a fresh
+  dictionary. Tag and attribute names use ASCII lowercase, and the first
+  duplicate attribute wins.
 - `text` joins descendant text in source order without inserting spaces.
   The tokenizer normalizes newlines and decodes character references except
   in raw text such as `script`.
@@ -58,10 +63,11 @@ so `:is(a, :hover)` still matches `a` elements.
 
 ## Retaining selected subtrees
 
-The experimental `tags` argument takes an iterable of tag names. The parser
-reads the whole input and retains each matching element and its descendants.
-Discarded ancestors disappear from the tree, so two retained elements can
-become siblings even if they had different parents in the input.
+The experimental `tags` argument takes an iterable of tag names, matched
+without regard to ASCII case. The parser reads the whole input and retains
+each matching element and its descendants. Queries use the resulting tree.
+For example, links that had different parents in the input can become
+adjacent roots and match the sibling selector `a + a`.
 
 ```python
 from astral_html import parse
@@ -69,13 +75,14 @@ from astral_html import parse
 source = '<nav><a href="/">Home</a></nav><main><a><b>Draft</b></a></main>'
 links = parse(source, tags=["a"])
 assert [a.text for a in links.select(":root")] == ["Home", "Draft"]
+assert [a.text for a in links.select("a + a")] == ["Draft"]
 assert links.select("nav a") == []
 assert [b.text for b in links.select("a > b")] == ["Draft"]
 ```
 
-Pass a collection or iterator even for one tag. An empty collection retains
-no elements. The [benchmarks](../benchmarks/README.md) compare full and
-partial trees on the same pages.
+For one tag, pass `tags=["a"]`. A bare string raises `TypeError`, and an
+empty iterable retains no elements. The benchmarks compare how much memory
+full and partial trees retain. [Retained memory](../benchmarks/README.md#retained-memory)
 
 ## Resource limits
 
