@@ -242,7 +242,11 @@ impl Tree {
         &self.attributes[attrs.start as usize..attrs.end as usize]
     }
 
-    pub fn attribute(&self, index: usize, matches: impl Fn(&[u8]) -> bool) -> Option<&str> {
+    pub fn string_bytes(&self) -> usize {
+        self.strings.len()
+    }
+
+    pub fn attribute(&self, index: usize, mut matches: impl FnMut(&[u8]) -> bool) -> Option<&str> {
         self.attribute_spans(index)
             .iter()
             .find(|(name, _)| matches(self.bytes(name)))
