@@ -7,7 +7,7 @@ project supports CPython 3.14 and 3.15. This example selects 3.14.
 
 ```sh
 uv sync --locked --python 3.14
-uv run --locked pytest
+uv run --locked --group benchmark pytest
 uv run --locked ruff check .
 uv run --locked ruff format --check .
 uv run --locked --group benchmark ty check

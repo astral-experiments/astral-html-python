@@ -6,6 +6,10 @@ CSS selection, and extraction. The astral-html-python API takes a string, so
 its timed parse includes UTF-8 decoding. The other parsers receive the bytes
 directly. Disk and network I/O are outside the timer.
 
+The three snapshots below exercise page-specific selectors. A separate
+benchmark compares link extraction on 1,867 distinct HTML bodies across seven page
+types. [Large-corpus benchmark](wcxb.md)
+
 | Snapshot | HTML bytes | All `a[href]` | Filtered links | Filtered CSS selector |
 | --- | ---: | ---: | ---: | --- |
 | PyPI package index | 6,144 | 16 | 8 | `body > a[data-requires-python]` |
