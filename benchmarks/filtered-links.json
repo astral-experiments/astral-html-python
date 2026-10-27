@@ -18,7 +18,7 @@
     "timed_operation": "Parse in-memory UTF-8 response bytes, select links with the page-specific CSS selector, and build an ordered list of (href, descendant text) pairs. Beautiful Soup uses its lxml backend.",
     "statistic": "Arithmetic mean and sample standard error across 12 fresh worker processes per fixture, in microseconds per operation.",
     "batch": "Calibrate from eight iterations to a 12 ms target, then time another batch of the calibrated size. Cyclic GC stays enabled during both batches.",
-    "reproduce": "After installing the release wheel and locked dependencies, run benchmarks/run.py --samples 12 --min-sample-ms 12 on one pinned CPU."
+    "reproduce": "taskset -c \"$cpu\" .venv/bin/python -I benchmarks/run.py --samples 12 --min-sample-ms 12"
   },
   "fixtures": {
     "pypi": {"file": "fixtures/iniconfig.html", "bytes": 6144, "selector": "body > a[data-requires-python]", "matches": 8},

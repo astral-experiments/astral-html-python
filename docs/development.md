@@ -10,7 +10,7 @@ uv sync --locked --python 3.14
 uv run --locked pytest
 uv run --locked ruff check .
 uv run --locked ruff format --check .
-uv run --locked ty check
+uv run --locked --group benchmark ty check
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 ```
