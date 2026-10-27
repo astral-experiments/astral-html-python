@@ -1,25 +1,26 @@
 # Scraping benchmarks
 
-The input is a captured UTF-8 response body in memory. A full scrape parses the
-bytes, selects links and builds a Python list of `(href, descendant text)` pairs.
-Astral takes a string, so its timed parse includes UTF-8 decoding. Lexbor, lxml
-and Beautiful Soup receive the bytes directly. Disk and network I/O are outside
-the timer.
+Each full scrape starts with a saved UTF-8 response body in memory and ends
+with a Python list of `(href, descendant text)` pairs. It includes parsing,
+CSS selection, and extraction. The astral-html-python API takes a string, so
+its timed parse includes UTF-8 decoding. The other parsers receive the bytes
+directly. Disk and network I/O are outside the timer.
 
-| Snapshot | HTML bytes | All `a[href]` | Filtered links | Filter |
+| Snapshot | HTML bytes | All `a[href]` | Filtered links | Filtered CSS selector |
 | --- | ---: | ---: | ---: | --- |
-| PyPI package index | 6,144 | 16 | 8 | Downloads with a Python version requirement |
-| GitHub file listing | 45,233 | 99 | 7 | File or directory names within the listing |
-| Wikipedia article | 222,328 | 1,603 | 15 | Article links from paragraphs directly under the content container |
+| PyPI package index | 6,144 | 16 | 8 | `body > a[data-requires-python]` |
+| GitHub file listing | 45,233 | 99 | 7 | `table.files tr > td.content a[href]` |
+| Wikipedia article | 222,328 | 1,603 | 15 | `#mw-content-text > p a[href^="/wiki/"]` |
 
-The runner checks the all-link and filtered counts above. Each timed extraction
-must return the same ordered pairs as Lexbor on the decoded UTF-8 text,
-including whitespace, non-ASCII characters, and duplicates.
-The query on an existing tree uses the same filtered selector and string API
-as the full scrape. Each library handles selector compilation and caching
-through its public API. These fixed snapshots measure repeated scraping of
-three pages with different sizes and match counts. Parsers can produce
-different trees on other pages, particularly when the HTML is malformed.
+Before timing, the runner checks the counts and compares each extraction
+against Lexbor's output on the decoded UTF-8 text. The pairs must match in
+order and preserve whitespace, non-ASCII characters, and duplicates. Parsers
+can produce different trees on other pages, particularly when the HTML is
+malformed.
+
+The existing-tree workload parses once, then repeats selection and extraction
+on that tree with the same filtered CSS string. Each library handles selector
+compilation and caching through its public API. [Benchmark runner](run.py)
 
 ## Reproduce
 
@@ -35,12 +36,12 @@ uv pip install --python .venv/bin/python --no-deps --reinstall "$dist"/*.whl
 .venv/bin/python -I benchmarks/run.py --check
 ```
 
-The recorded Linux runs pinned each worker to one logical CPU. Set `cpu` to
-a CPU allowed on your machine (`taskset -pc $$` lists them). The timing run
-also works without `taskset`. The RSS run requires Linux with glibc.
+The recorded Linux runs pinned each worker to one logical CPU. The example
+below selects the first CPU available to the current process. You can also
+run the timings without `taskset`. The RSS run requires Linux with glibc.
 
 ```sh
-cpu=0
+cpu=$(.venv/bin/python -c 'import os; print(min(os.sched_getaffinity(0)))')
 taskset -c "$cpu" .venv/bin/python -I benchmarks/run.py --samples 12 --min-sample-ms 12
 taskset -c "$cpu" .venv/bin/python -I benchmarks/run.py --memory --samples 7
 ```
@@ -55,10 +56,12 @@ Parsing and full scrapes create a new tree each iteration. Automatic collection
 can reclaim earlier trees during timing. Any cleanup after the measured batch
 is outside the timer. The last column reuses one parsed document.
 
-The release wheel used the parser sources at `da95d37` (0.1.0), Rust 1.99.0 and
-maturin 1.15.0. We ran on a Linux x86-64 AMD EPYC Milan VM with glibc 2.39
-and CPython 3.14.8. Other libraries were selectolax 1.0.0 (Lexbor), lxml
-6.1.3 with cssselect 1.5.0, and Beautiful Soup 4.15.0 with its lxml backend.
+We measured version 0.1.0 on a Linux x86-64 AMD EPYC Milan VM with glibc
+2.39 and CPython 3.14.8. We built the release wheel with Rust 1.99.0 and
+maturin 1.15.0. Other libraries were selectolax 1.0.0 (Lexbor), lxml 6.1.3
+with cssselect 1.5.0, and Beautiful Soup 4.15.0 with its lxml backend.
+[Parser revision `da95d37`](https://github.com/astral-experiments/astral-html-python/tree/da95d372ee9e6053d6b51e7d92422fd154d64532) ·
+[Runner at `864be59`](https://github.com/astral-experiments/astral-html-python/blob/864be5964185b5d77d5b3b8768c8952a49c9c0b0/benchmarks/run.py)
 
 | Page | Parser | Parse | Parse + all links | Parse + filtered links | Filtered on existing tree |
 | --- | --- | ---: | ---: | ---: | ---: |
@@ -104,9 +107,13 @@ resolution. The absolute RSS values depend on the allocator and process history.
 
 ## Fixture sources
 
-[HTML snapshots](fixtures/) are unchanged from [astral-html at b363c5e](https://github.com/astral-sh/astral-html/tree/b363c5e79fb5b896d5ac7b7bd78786fd5e9d196c).
-The [PyPI page](https://github.com/astral-sh/astral-tl/blob/04bbd94a054e164a3d057160977197ca25194bc5/benches/tl.rs)
-came via [astral-tl](fixtures/LICENSE-astral-tl), the [GitHub and Wikipedia pages](https://github.com/inikulin/parse5/tree/e65eae9a9dc27f1b7eb71868d245ca83070ccc4a/test/data/location-info)
-via [parse5](fixtures/LICENSE-parse5). Page content retains its original terms,
-including [Wikipedia contributors’ revision 592782173](https://en.wikipedia.org/w/index.php?title=42_(number)&oldid=592782173)
-under [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/).
+The three HTML snapshots are unchanged from astral-html revision `b363c5e`.
+[Local fixtures](fixtures/) · [Upstream fixtures](https://github.com/astral-sh/astral-html/tree/b363c5e79fb5b896d5ac7b7bd78786fd5e9d196c/crates/astral-html)
+
+- The PyPI snapshot comes from the astral-tl benchmark.
+  [Benchmark source](https://github.com/astral-sh/astral-tl/blob/04bbd94a054e164a3d057160977197ca25194bc5/benches/tl.rs) · [astral-tl license](fixtures/LICENSE-astral-tl)
+- The GitHub and Wikipedia snapshots come from the parse5 test suite.
+  [Original fixtures](https://github.com/inikulin/parse5/tree/e65eae9a9dc27f1b7eb71868d245ca83070ccc4a/test/data/location-info) · [parse5 license](fixtures/LICENSE-parse5)
+- The page content retains its original terms. The Wikipedia snapshot credits
+  the article's contributors and identifies its license as CC BY-SA 3.0.
+  [Wikipedia revision 592782173](https://en.wikipedia.org/w/index.php?title=42_(number)&oldid=592782173) · [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/)

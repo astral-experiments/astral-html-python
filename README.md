@@ -16,13 +16,16 @@ in Rust and uses the [astral-html](https://github.com/astral-sh/astral-html) tok
   </picture>
 </p>
 
-Time to parse a saved page and extract link URLs and text with CSS (mean ±1
-standard error). Each page has its own scale. [Benchmark details](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/README.md#time-per-operation).
+Each parser reads a saved page and extracts the URLs and text of links matching
+a page-specific CSS selector. Bars show mean time per scrape across 12 fresh
+processes. Whiskers show one standard error, and each page has its own scale.
+[Benchmark details](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/README.md#time-per-operation)
 
 ## Quick start
 
-With `uv` and Rust 1.97+ installed, start CPython 3.14 or 3.15 from the
-repository root.
+From the repository root, use `uv` and Rust 1.97 or newer to build the
+extension and start Python. This example uses CPython 3.14. For 3.15, change
+`--python 3.14` to `--python 3.15`.
 
 ```sh
 uv run --locked --python 3.14 python
