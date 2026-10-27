@@ -20,9 +20,10 @@ from lxml import html
 from selectolax.lexbor import LexborHTMLParser
 
 FIXTURES = {
-    "pypi": ("iniconfig.html", "body > a[data-requires-python]"),
-    "github": ("github-parse5.html", "table.files tr > td.content a[href]"),
-    "wikipedia": ("wiki-42.html", '#mw-content-text > p a[href^="/wiki/"]'),
+    # Each pair pins the published all-link and filtered-link counts.
+    "pypi": ("iniconfig.html", "body > a[data-requires-python]", (16, 8)),
+    "github": ("github-parse5.html", "table.files tr > td.content a[href]", (99, 7)),
+    "wikipedia": ("wiki-42.html", '#mw-content-text > p a[href^="/wiki/"]', (1603, 15)),
 }
 ALL_LINKS = "a[href]"
 
@@ -60,9 +61,14 @@ def parse_and_extract(read, links, css):
     return links(read(), css)
 
 
-def workloads(source, filtered_css):
+def workloads(source, filtered_css, counts):
     reference = LexborHTMLParser(source.decode("utf-8"))
-    expected = {css: lexbor_links(reference, css) for css in (ALL_LINKS, filtered_css)}
+    expected = {}
+    for css, count in zip((ALL_LINKS, filtered_css), counts, strict=True):
+        pairs = lexbor_links(reference, css)
+        if len(pairs) != count:
+            raise ValueError(f"{css!r}: expected {count} links, found {len(pairs)}")
+        expected[css] = pairs
     jobs = []
     for name, parse, links in PARSERS:
         read = partial(parse, source)
@@ -80,14 +86,14 @@ def workloads(source, filtered_css):
             )
         for label, query, css in queries:
             run = partial(query, css)
-            if not expected[css] or run() != expected[css]:
+            if run() != expected[css]:
                 raise ValueError(f"{name}: {css!r} links differ from Lexbor's")
             jobs.append((f"{name} | {label}", run))
     return jobs
 
 
-def timings(source, selector, min_ms, seed):
-    jobs = workloads(source, selector)  # Check all outputs before timing.
+def timings(source, selector, counts, min_ms, seed):
+    jobs = workloads(source, selector, counts)  # Check all outputs before timing.
     times = dict.fromkeys((label for label, _ in jobs), 0.0)
     random.Random(seed).shuffle(jobs)
     target = min_ms / 1000
@@ -95,10 +101,10 @@ def timings(source, selector, min_ms, seed):
         # Timer normally disables GC. Keep it enabled, including for cyclic trees.
         timer = Timer(run, setup=gc.enable)
         gc.collect()
-        count = 1
+        # Repeated parses let automatic GC reclaim cycles during the batch.
+        count = 8
         while timer.timeit(count) < target:
             count *= 2
-        gc.collect()
         times[label] = timer.timeit(count) * 1e6 / count
     return times
 
@@ -149,10 +155,10 @@ def main():
         print(f"\n| Fixture | Parser | Workload | Mean ± SE ({unit}, {n} processes) |")
         print("| --- | --- | --- | ---: |")
     for page in args.fixture or FIXTURES:
-        filename, selector = FIXTURES[page]
+        filename, selector, counts = FIXTURES[page]
         source = (Path(__file__).parent / "fixtures" / filename).read_bytes()
         if args.check:
-            workloads(source, selector)
+            workloads(source, selector, counts)
             print(f"{page}: all extraction outputs match Lexbor")
             continue
         if args.memory:
@@ -160,7 +166,7 @@ def main():
             modes = ("full", "partial")
             jobs = [m for i in range(n) for m in (modes[::-1] if i % 2 else modes)]
         else:
-            worker = partial(timings, source, selector, args.min_sample_ms)
+            worker = partial(timings, source, selector, counts, args.min_sample_ms)
             jobs = range(n)
         values = defaultdict(list)
         with multiprocessing.get_context("spawn").Pool(1, maxtasksperchild=1) as pool:
