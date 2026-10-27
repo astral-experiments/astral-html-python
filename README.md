@@ -92,7 +92,7 @@ On the captured Wikipedia article, parsing UTF-8 response bytes and extracting
 1,603 link URL/text pairs took 1,610 ± 5 µs (mean ± standard error across
 12 processes). The benchmark report includes the PyPI and GitHub results,
 comparisons with other parsers, and incremental RSS measurements for full and
-partial trees. See the [measurements and reproduction commands](https://github.com/konsti-openai/astral-html-python/blob/main/benchmarks/README.md).
+partial trees. See the [measurements and reproduction commands](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/README.md).
 
 ## Development
 
@@ -104,7 +104,7 @@ cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings
 
 CI builds a wheel from the source distribution and tests the installed package
 on both supported Python versions. See the
-[CI workflow](https://github.com/konsti-openai/astral-html-python/blob/main/.github/workflows/ci.yml).
+[CI workflow](https://github.com/astral-experiments/astral-html-python/blob/main/.github/workflows/ci.yml).
 The package version comes from `Cargo.toml`.
 
 Licensed under MIT or Apache-2.0.

@@ -20,9 +20,9 @@ classifiers = [
 ]
 
 [project.urls]
-Documentation = "https://github.com/konsti-openai/astral-html-python#api"
-Source = "https://github.com/konsti-openai/astral-html-python"
-Issues = "https://github.com/konsti-openai/astral-html-python/issues"
+Documentation = "https://github.com/astral-experiments/astral-html-python#api"
+Source = "https://github.com/astral-experiments/astral-html-python"
+Issues = "https://github.com/astral-experiments/astral-html-python/issues"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.11", "ty>=0.0.1"]
