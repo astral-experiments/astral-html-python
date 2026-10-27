@@ -1,4 +1,6 @@
-This project is an experiment in developing a library using Codex. The content below the line, as well as all the code, are written by Codex.
+> [!WARNING]
+>
+> This project is an experiment in developing a library using Codex. The content below the line, as well as all the code, are written by Codex.
 
 ---
 
