@@ -3,15 +3,19 @@
 import argparse
 import ctypes
 import gc
+import gzip
+import hashlib
 import math
 import multiprocessing
 import platform
 import random
-from collections import defaultdict
+import tarfile
+from collections import Counter, defaultdict
 from functools import partial
 from importlib.metadata import version
 from pathlib import Path
 from statistics import mean, stdev
+from time import perf_counter_ns
 from timeit import Timer
 
 import astral_html
@@ -26,6 +30,8 @@ FIXTURES = {
     "wikipedia": ("wiki-42.html", '#mw-content-text > p a[href^="/wiki/"]', (1603, 15)),
 }
 ALL_LINKS = "a[href]"
+# Hash of the sorted SHA-256 digests of the distinct WCXB HTML bodies.
+WCXB_DIGEST = "70cace552e1b71cd59d3203bbff239b4db54af10ad3d931c166f57b4e64cf3ec"
 
 
 def lexbor_links(doc, css):
@@ -124,22 +130,164 @@ def memory(source, mode):
     return {f"astral-html | {mode}": (rss_kib() - before) / len(documents)}
 
 
+def wcxb_pages(path):
+    pages = {}
+    with tarfile.open(path, "r|gz") as archive:
+        for member in archive:
+            parts = member.name.split("/")
+            if (
+                len(parts) != 4
+                or parts[1] not in ("dev", "test")
+                or parts[2] != "html"
+                or not parts[3].endswith(".html.gz")
+                or not member.isfile()
+            ):
+                continue
+            stream = archive.extractfile(member)
+            assert stream is not None
+            body = gzip.decompress(stream.read())
+            pages.setdefault(hashlib.sha256(body).digest(), ("/".join(parts[1:]), body))
+    if hashlib.sha256(b"".join(sorted(pages))).hexdigest() != WCXB_DIGEST:
+        raise ValueError("HTML bodies differ from the pinned WCXB corpus")
+    return pages
+
+
+def check_wcxb(path):
+    pages = wcxb_pages(path)
+    size = sum(len(body) for _, body in pages.values())
+    print(f"{len(pages):,} distinct pages, {size:,} bytes")
+    matching, differing = [], []
+    agreements, rejected, counts = Counter(), Counter(), Counter()
+    for key, (filename, body) in pages.items():
+        outputs = {}
+        for name, parse, links in PARSERS:
+            try:
+                outputs[name] = links(parse(body), ALL_LINKS)
+            except ValueError as error:
+                if str(error) != "HTML document exceeds the nesting limit":
+                    raise
+                print(f"{name} rejected {filename}: {error}", flush=True)
+                rejected[name] += 1
+        if outputs.get("astral-html") != outputs.get("astral-html partial"):
+            raise ValueError(
+                f"{filename}: partial-tree links differ from the full tree"
+            )
+        reference = outputs["selectolax (Lexbor)"]
+        for name, pairs in outputs.items():
+            agreements[name] += pairs == reference
+            counts[name] += len(pairs)
+        if len(outputs) == len(PARSERS):
+            group = (
+                matching
+                if all(pairs == reference for pairs in outputs.values())
+                else differing
+            )
+            group.append(key)
+    print("| Parser | Pages matching Lexbor | Rejected pages | Extracted links |")
+    print("| --- | ---: | ---: | ---: |")
+    for name, _, _ in PARSERS:
+        print(f"| {name} | {agreements[name]} | {rejected[name]} | {counts[name]} |")
+    print(
+        f"All parsers completed {len(matching) + len(differing)} pages. "
+        f"Outputs were identical on {len(matching)}.",
+        flush=True,
+    )
+    return matching, differing
+
+
+def wcxb_sample(path, groups, seed):
+    pages = wcxb_pages(path)
+    rng = random.Random(seed)
+    bodies = []
+    for group in groups:
+        batch = [pages[key][1] for key in sorted(group)]
+        rng.shuffle(batch)
+        bodies.append(batch)
+    total = sum(map(len, bodies))
+    times = {}
+    # Rotate parser order across fresh processes. Every parser sees the same pages.
+    start = seed % len(PARSERS)
+    for name, parse, links in PARSERS[start:] + PARSERS[:start]:
+        durations = [0, 0]
+        for i in (seed % 2, 1 - seed % 2):
+            batch = bodies[i]
+            for body in batch[:5]:
+                links(parse(body), ALL_LINKS)
+            gc.collect()
+            before = perf_counter_ns()
+            for body in batch:
+                links(parse(body), ALL_LINKS)
+            durations[i] = perf_counter_ns() - before
+        times[name] = (
+            sum(durations) / total / 1000,
+            durations[0] / len(bodies[0]) / 1000,
+        )
+    return times
+
+
+def run_wcxb(path, samples, check_only):
+    groups = check_wcxb(path)
+    if check_only:
+        return
+    if not groups[0]:
+        raise ValueError("No pages produced identical output across all parsers")
+    worker = partial(wcxb_sample, path, groups)
+    print(
+        "\n| Sample | Parser | All completed (µs/page) | Identical output (µs/page) |"
+    )
+    print("| ---: | --- | ---: | ---: |")
+    with multiprocessing.get_context("spawn").Pool(1, maxtasksperchild=1) as pool:
+        runs = []
+        for sample, times in enumerate(pool.imap(worker, range(samples)), 1):
+            runs.append(times)
+            for name, (all_pages, identical) in times.items():
+                print(
+                    f"| {sample} | {name} | {all_pages:.3f} | {identical:.3f} |",
+                    flush=True,
+                )
+    print(
+        "\n| Parser | All completed (µs/page ± SE) | Identical output (µs/page ± SE) |"
+    )
+    print("| --- | ---: | ---: |")
+    for name, _, _ in PARSERS:
+        cells = []
+        for values in zip(*(run[name] for run in runs), strict=True):
+            cells.append(
+                f"{mean(values):.1f} ± {stdev(values) / math.sqrt(samples):.1f}"
+            )
+        print(f"| {name} | {' | '.join(cells)} |")
+
+
 def main():
     cli = argparse.ArgumentParser(description=__doc__)
-    cli.add_argument("--fixture", choices=FIXTURES, action="append")
+    inputs = cli.add_mutually_exclusive_group()
+    inputs.add_argument("--fixture", choices=FIXTURES, action="append")
+    inputs.add_argument(
+        "--wcxb", type=Path, help="benchmark the pinned WCXB .tar.gz archive"
+    )
     cli.add_argument(
-        "--samples", type=int, help="fresh processes (default 20, or 7 for RSS)"
+        "--samples",
+        type=int,
+        help="fresh processes (default 20, 7 for RSS, or 10 for WCXB)",
     )
     mode = cli.add_mutually_exclusive_group()
     mode.add_argument("--memory", action="store_true", help="RSS per retained document")
     mode.add_argument(
         "--check", action="store_true", help="check outputs without timing"
     )
-    cli.add_argument("--min-sample-ms", type=float, default=20)
+    cli.add_argument(
+        "--min-sample-ms",
+        type=float,
+        help="batch target for fixed fixtures (default 20 ms)",
+    )
     args = cli.parse_args()
-    n = (7 if args.memory else 20) if args.samples is None else args.samples
-    if n < 2 or not math.isfinite(args.min_sample_ms) or args.min_sample_ms <= 0:
-        cli.error("need at least two samples and a positive, finite batch time")
+    if args.samples is not None and args.samples < 2:
+        cli.error("need at least two samples")
+    if args.wcxb and (args.memory or args.min_sample_ms is not None):
+        cli.error("--memory and --min-sample-ms apply only to fixed fixtures")
+    min_ms = 20 if args.min_sample_ms is None else args.min_sample_ms
+    if not math.isfinite(min_ms) or min_ms <= 0:
+        cli.error("need a positive, finite batch time")
 
     packages = [
         "astral-html-python",
@@ -150,6 +298,10 @@ def main():
     ]
     versions = ", ".join(f"{p} {version(p)}" for p in packages)
     print(f"Python {platform.python_version()}, {versions}")
+    if args.wcxb:
+        run_wcxb(args.wcxb, args.samples or 10, args.check)
+        return
+    n = args.samples or (7 if args.memory else 20)
     unit = "KiB/document" if args.memory else "µs"
     if not args.check:
         print(f"\n| Fixture | Parser | Workload | Mean ± SE ({unit}, {n} processes) |")
@@ -166,7 +318,7 @@ def main():
             modes = ("full", "partial")
             jobs = [m for i in range(n) for m in (modes[::-1] if i % 2 else modes)]
         else:
-            worker = partial(timings, source, selector, counts, args.min_sample_ms)
+            worker = partial(timings, source, selector, counts, min_ms)
             jobs = range(n)
         values = defaultdict(list)
         with multiprocessing.get_context("spawn").Pool(1, maxtasksperchild=1) as pool:

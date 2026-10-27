@@ -19,7 +19,8 @@ in Rust and uses the [astral-html](https://github.com/astral-sh/astral-html) tok
 Each parser reads a saved page and extracts the URLs and text of links matching
 a page-specific CSS selector. Bars show mean time per scrape across 12 fresh
 processes. Whiskers show one standard error, and each page has its own scale.
-[Benchmark details](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/README.md#time-per-operation)
+[Three-snapshot results](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/README.md#time-per-operation) ·
+[1,867-page corpus results](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/wcxb.md)
 
 ## Quick start
 
