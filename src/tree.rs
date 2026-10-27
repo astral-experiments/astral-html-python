@@ -172,7 +172,8 @@ impl Tree {
                         }
                     }
                 }
-                Token::Text(text) if !text.is_empty() && (tags.is_none() || parent.is_some()) => {
+                // Text can only be read through a retained element's subtree.
+                Token::Text(text) if parent.is_some() && !text.is_empty() => {
                     let i = tree.nodes.len();
                     if i >= max_nodes {
                         return Err("HTML document exceeds the node limit");

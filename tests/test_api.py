@@ -146,6 +146,17 @@ def test_input_limits_include_discarded_content() -> None:
             parse(source, tags=tags)
 
 
+def test_text_outside_elements_does_not_consume_the_node_limit() -> None:
+    # Each comment breaks the text into a separate token. Only descendants of
+    # an element can be read back, so none of this prefix needs a tree node.
+    doc = parse(
+        "x<!---->" * 4_000_000 + "<p>one<i>!</p>between</missing><b>two</b>after"
+    )
+    first, second = doc.select(":root")
+    assert (first.text, second.text) == ("one!", "two")
+    assert doc.select("p + b:nth-child(2)") == [second]
+
+
 def test_empty_document_and_invalid_input() -> None:
     assert parse("").elements() == []
     with pytest.raises(TypeError):
