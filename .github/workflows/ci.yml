@@ -39,6 +39,7 @@ jobs:
         run: |
           uv pip install --python .venv/bin/python --no-deps --strict "$RUNNER_TEMP"/dist/*.whl
           uv run --no-sync python -I -m pytest --import-mode=importlib
+          uv run --no-sync python -I benchmarks/run.py --check
           uv run --no-sync python -I benchmarks/run.py --fixture pypi --samples 2 --min-sample-ms 1
       - run: uv run --no-sync ruff check .
       - run: uv run --no-sync ruff format --check .
