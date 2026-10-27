@@ -2,9 +2,12 @@
 
 ## Tree construction
 
-`parse(html)` accepts a decoded Python string. Elements follow the nesting in
-the source. For example, `<p>one<p>two` puts the second paragraph inside the
-first. A browser closes the first paragraph when it encounters the second.
+`parse(html)` accepts a decoded Python string. If your HTTP client returns
+bytes, decode them using the page's encoding before calling `parse`.
+
+Elements follow the nesting in the source. For example, `<p>one<p>two` puts the
+second paragraph inside the first. A browser closes the first paragraph when it
+encounters the second.
 
 An end tag closes the innermost open element with that name and any open
 descendants. Unmatched end tags are ignored. Void elements such as `br` have
@@ -14,6 +17,9 @@ The tree can have several roots. Text outside those roots is discarded.
 [Upstream parser notes](https://github.com/astral-sh/astral-html/blob/bb211c502d6ceaf4e2843d782afe2b24d5d8a49a/docs/safety.md)
 
 ## Queries and element handles
+
+The tree stays in Rust. Queries create Python handles for the elements they
+return.
 
 `select(css)` and `elements(tag=None)` return lists in source order.
 `select_one(css)` returns the first match, or `None`. On an element, all three
