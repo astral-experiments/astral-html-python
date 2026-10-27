@@ -1,51 +1,88 @@
 # astral-html-python
 
-Scrape HTML from Python with [astral-html](https://github.com/astral-sh/astral-html).
-The tree stays in Rust. Python objects are created as you request them, and an
-element remains usable after you drop its document.
+Extract text, attributes, and links from HTML using CSS selectors. The tree
+stays in Rust, and Python receives element handles on demand. A handle keeps
+its tree alive even after you drop the document. The parser uses
+[Astral’s HTML tokenizer](https://github.com/astral-sh/astral-html).
 
-From a checkout, run `uv sync --locked` (CPython 3.14 or 3.15, Rust 1.97+).
-Then in `uv run python`:
+## Quick start
+
+From a checkout with Rust 1.97 or newer, install the package for CPython 3.14
+or 3.15. For example, to start a Python 3.14 session, run
+
+```sh
+uv sync --locked --python 3.14
+uv run python
+```
+
+`parse` takes a decoded Python string. If you have response bytes, decode them
+using the page’s encoding first. This example uses UTF-8.
 
 ```python
 from astral_html import parse
 
-doc = parse('<main><a href="/guide">Read <b>the guide</b></a></main>')
-(link,) = doc.select("main a[href]")
-link.get("href")  # '/guide'
-link.text  # 'Read the guide'
+body = b'<main><a href="/guide">Read <b>the guide</b></a><a>Draft</a></main>'
+doc = parse(body.decode("utf-8"))
+links = [(a.get("href"), a.text) for a in doc.select("main a[href]")]
+assert links == [("/guide", "Read the guide")]
 ```
 
 ## API
 
-`parse(html)` takes a decoded string and builds a tree in source order.
-It preserves the nesting you wrote, including a `<p>` inside another `<p>`.
-It does not insert implied elements or apply browser HTML5 error recovery.
-See the [parser’s safety notes](https://github.com/astral-sh/astral-html/blob/b363c5e79fb5b896d5ac7b7bd78786fd5e9d196c/docs/safety.md).
+| On a document or element | Result |
+| --- | --- |
+| `select(css)` | List of matching elements in source order. |
+| `select_one(css)` | First matching element, or `None`. |
+| `elements(tag=None)` | List of elements in source order, optionally filtered by tag. |
 
-On a document or element, queries return matches in source order:
+On an element, all three methods search descendants and exclude the element
+itself. A CSS selector can still match against ancestors outside that element.
+Use `element.select(":scope > a[href]")` for its direct link children.
 
-- `select(css)` returns a list. On an element it searches descendants,
-  excluding the element itself. Use `element.select(":scope > a")` for direct children.
-- `select_one(css)` returns the first match, or `None`.
-- `elements(tag=None)` lists elements, optionally filtered by tag name.
+- `tag`, `parent`, and `children` expose the tag name, parent element (or
+  `None`), and direct child elements. Handles compare and hash by node identity.
+- `get(name, default=None)` reads one attribute. `attrs` returns a fresh
+  dictionary. Names are ASCII-lowercased and the first duplicate attribute wins.
+- `text` joins descendant text in source order without inserting spaces. The
+  tokenizer normalizes newlines and decodes character references except in raw
+  text such as `script`.
 
-Elements expose `tag`, `parent`, `children`, a fresh `attrs` dictionary, and
-`get(name, default=None)`. Tag and attribute names are ASCII-lowercased. The
-first duplicate attribute wins. `text` joins descendant text without adding spaces,
-normalizes newlines, and decodes character references except in raw text such as
-`script`. Elements compare and hash by node identity.
+### Parsing and selector behavior
 
-`parse(html, tags=["a"])` is an experimental way to retain just matching elements
-and their subtrees. It still reads the entire input. Discarded ancestors change
-query results: a retained link can match `:root` and no longer match `main a`.
+The tree follows the nesting in the source. For example, `<p>one<p>two`
+produces a paragraph inside a paragraph. Browser HTML5 tree construction can
+close the first paragraph or insert implied elements. See the
+[upstream parser notes](https://github.com/astral-sh/astral-html/blob/b363c5e79fb5b896d5ac7b7bd78786fd5e9d196c/docs/safety.md).
 
-CSS includes `:scope`, `:nth-child`, `:is`, `:not`, and `:has`. Unsupported
-selectors such as `:hover` raise `ValueError`, as do resource limits:
+Supported selectors include `:scope`, `:nth-child`, `:is`, `:not`, and
+`:has`. An unsupported selector such as `:hover` raises `ValueError` on its
+own. The forgiving lists in `:is()` and `:where()` discard unsupported
+alternatives, so `:is(a, :hover)` still matches `a` elements.
 
-- HTML: 128 MiB of UTF-8, 4 million retained nodes, 256 open elements.
-- CSS: 256 KiB of UTF-8, 32 nested blocks, 128 compounds along a selector path.
-  Expensive queries can also hit a work or cache limit. No partial results are returned.
+### Retaining selected subtrees
+
+The experimental `tags` argument accepts an iterable of tag names, such as
+`["a"]`. The parser scans the whole input and retains each matching element
+and its descendants. Discarding ancestors changes the selectors you can use.
+With the same response body as above,
+
+```python
+links_only = parse(body.decode("utf-8"), tags=["a"])
+assert [a.text for a in links_only.select("a[href]")] == ["Read the guide"]
+assert links_only.select("main a") == []
+assert len(links_only.select(":root")) == 2
+```
+
+Use a collection or iterator of names even for a single tag. An empty
+collection retains no elements.
+
+### Limits
+
+- HTML input is limited to 128 MiB of UTF-8, four million retained nodes, and
+  256 simultaneously open non-void elements.
+- CSS input is limited to 256 KiB of UTF-8, 32 nested blocks, and 128
+  compounds along a matching path. A query that exceeds a work or cache limit
+  raises `ValueError` and discards its partial results.
 
 Parsing and queries release the GIL. Importing on free-threaded CPython currently enables it.
 
@@ -64,5 +101,9 @@ uv run ruff check . && uv run ruff format --check . && uv run ty check
 cargo fmt --check && cargo clippy --locked --all-targets -- -D warnings
 ```
 
-[CI](.github/workflows/ci.yml) builds a wheel from the source distribution and tests
-the installed package. Set the package version in `Cargo.toml`. License: MIT or Apache-2.0.
+CI builds a wheel from the source distribution and tests the installed package
+on both supported Python versions. See the
+[CI workflow](https://github.com/konsti-openai/astral-html-python/blob/main/.github/workflows/ci.yml).
+The package version comes from `Cargo.toml`.
+
+Licensed under MIT or Apache-2.0.
