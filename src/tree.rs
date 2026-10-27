@@ -172,7 +172,8 @@ impl Tree {
                         }
                     }
                 }
-                Token::Text(text) if !text.is_empty() && (tags.is_none() || parent.is_some()) => {
+                // Text can only be read through a retained element's subtree.
+                Token::Text(text) if parent.is_some() && !text.is_empty() => {
                     let i = tree.nodes.len();
                     if i >= max_nodes {
                         return Err("HTML document exceeds the node limit");
@@ -241,7 +242,11 @@ impl Tree {
         &self.attributes[attrs.start as usize..attrs.end as usize]
     }
 
-    pub fn attribute(&self, index: usize, matches: impl Fn(&[u8]) -> bool) -> Option<&str> {
+    pub fn string_bytes(&self) -> usize {
+        self.strings.len()
+    }
+
+    pub fn attribute(&self, index: usize, mut matches: impl FnMut(&[u8]) -> bool) -> Option<&str> {
         self.attribute_spans(index)
             .iter()
             .find(|(name, _)| matches(self.bytes(name)))

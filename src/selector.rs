@@ -4,10 +4,7 @@ use std::{borrow::Cow, fmt, ops::Range};
 
 use cssparser::ToCss;
 use precomputed_hash::PrecomputedHash;
-use selectors::attr::{
-    AttrSelectorOperation, AttrSelectorOperator, CaseSensitivity, NamespaceConstraint,
-    SELECTOR_WHITESPACE,
-};
+use selectors::attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint};
 use selectors::bloom::BloomFilter;
 use selectors::matching::{self, ElementSelectorFlags};
 use selectors::parser::{
@@ -16,6 +13,7 @@ use selectors::parser::{
 use selectors::{Element, OpaqueElement};
 
 use crate::tree::Tree;
+mod attributes;
 mod limits;
 use limits::MatchBudget;
 
@@ -171,7 +169,7 @@ fn select_with_stack(
     };
     let offset = usize::from(tag.is_some_and(|(_, first)| first));
     let nodes = tree.descendants(root);
-    let budget = MatchBudget::new(nodes.len(), shape);
+    let budget = MatchBudget::new(nodes.len(), tree.string_bytes(), shape);
     let mut caches = matching::SelectorCaches::default();
     let mut context = matching::MatchingContext::new(
         matching::MatchingMode::Normal,
@@ -322,16 +320,12 @@ impl fmt::Debug for ElementRef<'_> {
         f.debug_tuple("ElementRef").field(&self.index).finish()
     }
 }
+
 impl ElementRef<'_> {
     fn name(&self) -> &[u8] {
         self.tree
             .element_name(self.index)
             .expect("expected an element")
-    }
-    fn attribute(&self, name: &str) -> Option<&str> {
-        self.budget.visit();
-        self.tree
-            .attribute(self.index, |key| key == name.as_bytes())
     }
     fn at(&self, index: usize) -> Self {
         self.budget.visit();
@@ -403,22 +397,7 @@ impl Element for ElementRef<'_> {
         let Some(actual) = self.attribute(&name.value) else {
             return false;
         };
-        // Servo compares an ASCII-insensitive substring at every possible
-        // offset. Keep its allocation-free path for short needles, and use
-        // Rust's linear-time substring search when the needle is long.
-        if let AttrSelectorOperation::WithValue {
-            operator: AttrSelectorOperator::Substring,
-            case_sensitivity: CaseSensitivity::AsciiCaseInsensitive,
-            value,
-        } = operation
-            && value.0.len() > 32
-        {
-            return actual.len() >= value.0.len()
-                && actual
-                    .to_ascii_lowercase()
-                    .contains(&value.0.to_ascii_lowercase());
-        }
-        operation.eval_str(actual)
+        self.matches_attribute_value(actual, operation)
     }
     fn has_attr_in_no_namespace(&self, name: &CssName) -> bool {
         self.attribute(&name.value).is_some()
@@ -446,14 +425,11 @@ impl Element for ElementRef<'_> {
     }
     fn has_id(&self, id: &CssName, case: CaseSensitivity) -> bool {
         self.attribute("id")
-            .is_some_and(|value| case.eq(id.value.as_bytes(), value.as_bytes()))
+            .is_some_and(|value| self.value_equals(value.as_bytes(), id.value.as_bytes(), case))
     }
     fn has_class(&self, class: &CssName, case: CaseSensitivity) -> bool {
-        self.attribute("class").is_some_and(|value| {
-            value
-                .split(SELECTOR_WHITESPACE)
-                .any(|part| case.eq(class.value.as_bytes(), part.as_bytes()))
-        })
+        self.attribute("class")
+            .is_some_and(|value| self.has_word(value, &class.value, case))
     }
     fn has_custom_state(&self, _name: &CssName) -> bool {
         false

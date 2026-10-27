@@ -104,6 +104,64 @@ def test_work_limit_without_tree_traversal() -> None:
         parse("<i></i>" * 4_000).select(f":is({wide})")
 
 
+def test_repeated_attribute_value_scans_are_bounded() -> None:
+    value = "first " + "word " * 200_000 + "last"
+    doc = parse(f'<p class="{value}">')
+    for missing in (".absent", "[class~=absent]", "[class*=absent i]"):
+        with pytest.raises(ValueError, match="matching work limit"):
+            doc.select(",".join([missing] * 128))
+
+    # One complete scan is fine, as are repeated operations that only inspect
+    # the beginning, end, or length of this attribute.
+    large = parse(f'<p class="{"x" * (9 * 1024 * 1024)} last">')
+    assert large.select(".last") == large.elements()
+    cheap = (
+        ".first[class][class^=first][class$=last][class*=FIRST i]:not([class=short])"
+    )
+    assert doc.select(cheap * 64) == doc.elements()
+
+
+def test_repeated_attribute_name_scans_are_bounded() -> None:
+    attrs = " ".join(f"a{i}" for i in range(50_000))
+    doc = parse(f"<p {attrs} last>")
+    assert doc.select("[last]") == doc.elements()
+    with pytest.raises(ValueError, match="matching work limit"):
+        doc.select(",".join(["[absent]"] * 256))
+
+
+def test_attribute_matches_on_shared_ancestor_can_short_circuit() -> None:
+    value = "xxFIRST" + "a" * 8192
+    doc = parse(f'<section data-key="{value}" id="{value}" {value}>' + "<a></a>" * 4000)
+    links = doc.elements("a")
+    other = "z" + value[1:]
+    for selector in (
+        "[data-key*=FIRST]",
+        "[data-key*=first i]",
+        f'[data-key*="first{"a" * 32}" i]',
+    ):
+        assert doc.select(f"section{selector} a") == links
+    for selector in [f"[{other}]", f"#{other}"] + [
+        f'[data-key{op}"{other}"]' for op in ("=", "^=", "$=", "|=")
+    ]:
+        assert doc.select(f"section{selector} a") == []
+
+    # One name check plus an early comparison should cost about the same as
+    # either alone, even when many descendants consult the same ancestor.
+    many = parse(f"<section {value}>" + "<a></a>" * 160_000)
+    assert many.select(f"section[{other}] a") == []
+
+
+def test_substring_crossing_scan_blocks() -> None:
+    needle = "é" + "B" * 40
+    # A multibyte character straddles the scan boundary. The long insensitive
+    # search must see the entire needle, even when it spans two blocks.
+    doc = parse(f'<p data-value="{"a" * 63}{needle}suffix">')
+    assert doc.select(f'[data-value*="{needle}"]') == doc.elements()
+    assert doc.select(f'[data-value*="{needle.lower()}" i]') == doc.elements()
+    assert doc.select(f'[data-value*="{needle.upper()}" i]') == []
+    assert doc.select('[data-value*="suffix"]') == doc.elements()
+
+
 def test_relative_cache_rotation_preserves_late_and_negated_matches() -> None:
     doc = parse("<i></i>" * 2_000 + "<i><b></b></i>")
     query = "i:has(.missing, b)"
