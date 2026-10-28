@@ -37,8 +37,19 @@ Pass the page HTML as a string, then select the links that have an `href`.
 ```python
 from astral_html import parse
 
-doc = parse('<main><a href="/guide">Read <b>the guide</b></a><a>Draft</a></main>')
-links = [(a.get("href"), a.text) for a in doc.select("main a[href]")]
+html = """
+<main>
+    <a href="/guide">Read <b>the guide</b></a>
+    <a>Draft</a>
+</main>
+"""
+doc = parse(html)
+
+links = []
+for link in doc.select("main a[href]"):
+    href = link.get("href")
+    links.append((href, link.text))
+
 print(links)  # [('/guide', 'Read the guide')]
 ```
 
