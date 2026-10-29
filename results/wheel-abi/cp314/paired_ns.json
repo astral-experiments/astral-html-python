@@ -1,0 +1,442 @@
+[
+  {
+    "abi3": {
+      "links on parsed tree": 9893999,
+      "parse": 54679906,
+      "parse + headings and paragraphs": 72066032,
+      "parse + links": 62722918,
+      "parse + metadata": 55503703,
+      "partial parse + links": 57624745,
+      "tag histogram on parsed tree": 30217581
+    },
+    "abi3_first": false,
+    "native": {
+      "links on parsed tree": 9736453,
+      "parse": 53400443,
+      "parse + headings and paragraphs": 71012474,
+      "parse + links": 63317835,
+      "parse + metadata": 56023969,
+      "partial parse + links": 56731678,
+      "tag histogram on parsed tree": 28374090
+    },
+    "seed": 0
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 11672288,
+      "parse": 53758726,
+      "parse + headings and paragraphs": 73483414,
+      "parse + links": 63386544,
+      "parse + metadata": 55750737,
+      "partial parse + links": 57688736,
+      "tag histogram on parsed tree": 31060524
+    },
+    "abi3_first": true,
+    "native": {
+      "links on parsed tree": 9629050,
+      "parse": 53642006,
+      "parse + headings and paragraphs": 71533157,
+      "parse + links": 62495675,
+      "parse + metadata": 55295085,
+      "partial parse + links": 57101930,
+      "tag histogram on parsed tree": 28366225
+    },
+    "seed": 1
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 9900058,
+      "parse": 54951681,
+      "parse + headings and paragraphs": 73251066,
+      "parse + links": 64244552,
+      "parse + metadata": 56700288,
+      "partial parse + links": 58394611,
+      "tag histogram on parsed tree": 29999734
+    },
+    "abi3_first": false,
+    "native": {
+      "links on parsed tree": 9625714,
+      "parse": 53466720,
+      "parse + headings and paragraphs": 71469067,
+      "parse + links": 62687143,
+      "parse + metadata": 55087566,
+      "partial parse + links": 57129011,
+      "tag histogram on parsed tree": 28908459
+    },
+    "seed": 2
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 10040772,
+      "parse": 54220793,
+      "parse + headings and paragraphs": 72020580,
+      "parse + links": 63171392,
+      "parse + metadata": 55995037,
+      "partial parse + links": 57220803,
+      "tag histogram on parsed tree": 31106948
+    },
+    "abi3_first": true,
+    "native": {
+      "links on parsed tree": 9328978,
+      "parse": 53929637,
+      "parse + headings and paragraphs": 71411668,
+      "parse + links": 62581837,
+      "parse + metadata": 54578034,
+      "partial parse + links": 56694458,
+      "tag histogram on parsed tree": 28874650
+    },
+    "seed": 3
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 9946668,
+      "parse": 55722563,
+      "parse + headings and paragraphs": 71833516,
+      "parse + links": 63071823,
+      "parse + metadata": 55964718,
+      "partial parse + links": 57350269,
+      "tag histogram on parsed tree": 29822209
+    },
+    "abi3_first": false,
+    "native": {
+      "links on parsed tree": 9786106,
+      "parse": 52937814,
+      "parse + headings and paragraphs": 71187493,
+      "parse + links": 62134674,
+      "parse + metadata": 69524670,
+      "partial parse + links": 57331554,
+      "tag histogram on parsed tree": 28450112
+    },
+    "seed": 4
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 9895682,
+      "parse": 54666520,
+      "parse + headings and paragraphs": 72821230,
+      "parse + links": 63237263,
+      "parse + metadata": 55867485,
+      "partial parse + links": 57735172,
+      "tag histogram on parsed tree": 30096805
+    },
+    "abi3_first": true,
+    "native": {
+      "links on parsed tree": 9692721,
+      "parse": 53507974,
+      "parse + headings and paragraphs": 71547929,
+      "parse + links": 62542239,
+      "parse + metadata": 55027287,
+      "partial parse + links": 57336163,
+      "tag histogram on parsed tree": 28580176
+    },
+    "seed": 5
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 9917853,
+      "parse": 54204371,
+      "parse + headings and paragraphs": 73725566,
+      "parse + links": 64649864,
+      "parse + metadata": 56387710,
+      "partial parse + links": 58021057,
+      "tag histogram on parsed tree": 30290297
+    },
+    "abi3_first": false,
+    "native": {
+      "links on parsed tree": 9577985,
+      "parse": 54151002,
+      "parse + headings and paragraphs": 72310990,
+      "parse + links": 62319559,
+      "parse + metadata": 55074043,
+      "partial parse + links": 57464722,
+      "tag histogram on parsed tree": 29413480
+    },
+    "seed": 6
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 9963949,
+      "parse": 53785884,
+      "parse + headings and paragraphs": 72019993,
+      "parse + links": 63496368,
+      "parse + metadata": 55792612,
+      "partial parse + links": 57030156,
+      "tag histogram on parsed tree": 29581015
+    },
+    "abi3_first": true,
+    "native": {
+      "links on parsed tree": 9694073,
+      "parse": 53248365,
+      "parse + headings and paragraphs": 71490890,
+      "parse + links": 62755367,
+      "parse + metadata": 54893645,
+      "partial parse + links": 56999870,
+      "tag histogram on parsed tree": 29352145
+    },
+    "seed": 7
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 9653607,
+      "parse": 53530805,
+      "parse + headings and paragraphs": 72074174,
+      "parse + links": 63993302,
+      "parse + metadata": 55755964,
+      "partial parse + links": 59028749,
+      "tag histogram on parsed tree": 29839269
+    },
+    "abi3_first": false,
+    "native": {
+      "links on parsed tree": 9526789,
+      "parse": 55299687,
+      "parse + headings and paragraphs": 72043076,
+      "parse + links": 64764830,
+      "parse + metadata": 59217374,
+      "partial parse + links": 57342743,
+      "tag histogram on parsed tree": 29137051
+    },
+    "seed": 8
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 9863420,
+      "parse": 53374302,
+      "parse + headings and paragraphs": 72002971,
+      "parse + links": 62993865,
+      "parse + metadata": 55266816,
+      "partial parse + links": 57532720,
+      "tag histogram on parsed tree": 29518818
+    },
+    "abi3_first": true,
+    "native": {
+      "links on parsed tree": 9875814,
+      "parse": 53045515,
+      "parse + headings and paragraphs": 72097398,
+      "parse + links": 61780156,
+      "parse + metadata": 55058444,
+      "partial parse + links": 56677164,
+      "tag histogram on parsed tree": 29007288
+    },
+    "seed": 9
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 10510293,
+      "parse": 54015467,
+      "parse + headings and paragraphs": 72117586,
+      "parse + links": 63549439,
+      "parse + metadata": 55521324,
+      "partial parse + links": 57681257,
+      "tag histogram on parsed tree": 30480340
+    },
+    "abi3_first": false,
+    "native": {
+      "links on parsed tree": 9583195,
+      "parse": 53838814,
+      "parse + headings and paragraphs": 71883056,
+      "parse + links": 62733265,
+      "parse + metadata": 55534087,
+      "partial parse + links": 57456267,
+      "tag histogram on parsed tree": 28898092
+    },
+    "seed": 10
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 10579784,
+      "parse": 53748036,
+      "parse + headings and paragraphs": 71561896,
+      "parse + links": 63601477,
+      "parse + metadata": 55523908,
+      "partial parse + links": 57940654,
+      "tag histogram on parsed tree": 31093261
+    },
+    "abi3_first": true,
+    "native": {
+      "links on parsed tree": 9424176,
+      "parse": 53678585,
+      "parse + headings and paragraphs": 71338857,
+      "parse + links": 63005108,
+      "parse + metadata": 55045741,
+      "partial parse + links": 57360425,
+      "tag histogram on parsed tree": 28797653
+    },
+    "seed": 11
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 9972826,
+      "parse": 53969561,
+      "parse + headings and paragraphs": 71974009,
+      "parse + links": 63353341,
+      "parse + metadata": 55974203,
+      "partial parse + links": 57174105,
+      "tag histogram on parsed tree": 30117680
+    },
+    "abi3_first": false,
+    "native": {
+      "links on parsed tree": 10188571,
+      "parse": 53654980,
+      "parse + headings and paragraphs": 71796987,
+      "parse + links": 62598575,
+      "parse + metadata": 54881984,
+      "partial parse + links": 56999328,
+      "tag histogram on parsed tree": 28854820
+    },
+    "seed": 12
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 9738295,
+      "parse": 54413494,
+      "parse + headings and paragraphs": 72392835,
+      "parse + links": 63508382,
+      "parse + metadata": 55661056,
+      "partial parse + links": 57599364,
+      "tag histogram on parsed tree": 29831734
+    },
+    "abi3_first": true,
+    "native": {
+      "links on parsed tree": 9746691,
+      "parse": 53630996,
+      "parse + headings and paragraphs": 71861177,
+      "parse + links": 63500057,
+      "parse + metadata": 55675202,
+      "partial parse + links": 57262441,
+      "tag histogram on parsed tree": 28599681
+    },
+    "seed": 13
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 9926388,
+      "parse": 54235430,
+      "parse + headings and paragraphs": 71671281,
+      "parse + links": 64103279,
+      "parse + metadata": 55539457,
+      "partial parse + links": 59284555,
+      "tag histogram on parsed tree": 29557439
+    },
+    "abi3_first": false,
+    "native": {
+      "links on parsed tree": 9447439,
+      "parse": 53142229,
+      "parse + headings and paragraphs": 70968131,
+      "parse + links": 62196340,
+      "parse + metadata": 55091807,
+      "partial parse + links": 56858773,
+      "tag histogram on parsed tree": 29021863
+    },
+    "seed": 14
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 10029659,
+      "parse": 54429784,
+      "parse + headings and paragraphs": 84982963,
+      "parse + links": 63766306,
+      "parse + metadata": 56444817,
+      "partial parse + links": 57530595,
+      "tag histogram on parsed tree": 31437509
+    },
+    "abi3_first": true,
+    "native": {
+      "links on parsed tree": 9779068,
+      "parse": 53473529,
+      "parse + headings and paragraphs": 71288092,
+      "parse + links": 63373314,
+      "parse + metadata": 55166758,
+      "partial parse + links": 56681270,
+      "tag histogram on parsed tree": 28745976
+    },
+    "seed": 15
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 9769561,
+      "parse": 54148445,
+      "parse + headings and paragraphs": 73265014,
+      "parse + links": 63961087,
+      "parse + metadata": 55948314,
+      "partial parse + links": 57871385,
+      "tag histogram on parsed tree": 30541347
+    },
+    "abi3_first": false,
+    "native": {
+      "links on parsed tree": 9719117,
+      "parse": 66251557,
+      "parse + headings and paragraphs": 72322425,
+      "parse + links": 62857084,
+      "parse + metadata": 57110136,
+      "partial parse + links": 57253164,
+      "tag histogram on parsed tree": 28800458
+    },
+    "seed": 16
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 9867616,
+      "parse": 54071181,
+      "parse + headings and paragraphs": 72324950,
+      "parse + links": 63000554,
+      "parse + metadata": 55478723,
+      "partial parse + links": 65718617,
+      "tag histogram on parsed tree": 30418786
+    },
+    "abi3_first": true,
+    "native": {
+      "links on parsed tree": 9637613,
+      "parse": 53420118,
+      "parse + headings and paragraphs": 71615226,
+      "parse + links": 62774039,
+      "parse + metadata": 55448095,
+      "partial parse + links": 57622818,
+      "tag histogram on parsed tree": 28583231
+    },
+    "seed": 17
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 10210438,
+      "parse": 53955814,
+      "parse + headings and paragraphs": 72368882,
+      "parse + links": 63589179,
+      "parse + metadata": 55565957,
+      "partial parse + links": 57971152,
+      "tag histogram on parsed tree": 29749630
+    },
+    "abi3_first": false,
+    "native": {
+      "links on parsed tree": 9844782,
+      "parse": 53888137,
+      "parse + headings and paragraphs": 73915796,
+      "parse + links": 64102984,
+      "parse + metadata": 55614287,
+      "partial parse + links": 57071563,
+      "tag histogram on parsed tree": 28838780
+    },
+    "seed": 18
+  },
+  {
+    "abi3": {
+      "links on parsed tree": 9748791,
+      "parse": 54190875,
+      "parse + headings and paragraphs": 72386976,
+      "parse + links": 63577697,
+      "parse + metadata": 56195137,
+      "partial parse + links": 58298025,
+      "tag histogram on parsed tree": 29605290
+    },
+    "abi3_first": true,
+    "native": {
+      "links on parsed tree": 9651780,
+      "parse": 57758712,
+      "parse + headings and paragraphs": 72731047,
+      "parse + links": 62764594,
+      "parse + metadata": 55206761,
+      "partial parse + links": 57270474,
+      "tag histogram on parsed tree": 28858445
+    },
+    "seed": 19
+  }
+]
