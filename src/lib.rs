@@ -197,11 +197,10 @@ impl Element {
     /// The ASCII-lowercased tag name.
     #[getter]
     fn tag(&self) -> &str {
-        let name = self
-            .tree
-            .element_name(self.index)
-            .expect("expected an element");
-        std::str::from_utf8(name).expect("tag names are UTF-8")
+        let Kind::Element { name, .. } = &self.tree.nodes[self.index].kind else {
+            unreachable!("expected an element");
+        };
+        self.tree.string(name)
     }
 
     /// A read-only mapping of the element's attributes, with ASCII-lowercased keys.
