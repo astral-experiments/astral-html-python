@@ -4,7 +4,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from astral_html import parse
+from astral_html import ResourceLimitError, parse
 
 
 def test_selector_limits_on_a_small_worker_stack() -> None:
@@ -21,7 +21,7 @@ def exercise_stack_limits() -> None:
     def check(selector: str, expected: int | str, html: str = "<x></x>") -> None:
         select = parse(html).select
         if isinstance(expected, str):
-            with pytest.raises(ValueError, match=expected):
+            with pytest.raises(ResourceLimitError, match=expected):
                 select(selector)
         else:
             assert len(select(selector)) == expected, selector
@@ -86,21 +86,21 @@ def test_work_limit_discards_matches_and_allows_subsequent_queries() -> None:
     doc = parse("<b></b>" + "<i></i>" * 2_000)
     query = "b, :is(.missing ~ i) ~ i"
     assert doc.select_one(query) == doc.select("b")[0]
-    with pytest.raises(ValueError, match="matching work limit"):
+    with pytest.raises(ResourceLimitError, match="matching work limit"):
         doc.select(query)
-    with pytest.raises(ValueError, match="matching work limit"):
+    with pytest.raises(ResourceLimitError, match="matching work limit"):
         doc.select_one(":not(:is(.missing ~ i) ~ i) + .missing ~ i")
     assert len(doc.select("i")) == 2_000
 
 
 def test_work_limit_without_tree_traversal() -> None:
     doc = parse("<b><i></i></b>" * 2_048)
-    with pytest.raises(ValueError, match="matching work limit"):
+    with pytest.raises(ResourceLimitError, match="matching work limit"):
         doc.select(", ".join(["i:nth-child(even of *)"] * 256))
     assert len(doc.select("i:first-child")) == 2_048
 
     wide = ",".join([":not(*)"] * 2_048)
-    with pytest.raises(ValueError, match="matching work limit"):
+    with pytest.raises(ResourceLimitError, match="matching work limit"):
         parse("<i></i>" * 4_000).select(f":is({wide})")
 
 
@@ -108,7 +108,7 @@ def test_repeated_attribute_value_scans_are_bounded() -> None:
     value = "first " + "word " * 200_000 + "last"
     doc = parse(f'<p class="{value}">')
     for missing in (".absent", "[class~=absent]", "[class*=absent i]"):
-        with pytest.raises(ValueError, match="matching work limit"):
+        with pytest.raises(ResourceLimitError, match="matching work limit"):
             doc.select(",".join([missing] * 128))
 
     # One complete scan is fine, as are repeated operations that only inspect
@@ -125,7 +125,7 @@ def test_repeated_attribute_name_scans_are_bounded() -> None:
     attrs = " ".join(f"a{i}" for i in range(50_000))
     doc = parse(f"<p {attrs} last>")
     assert len(doc.select("[last]")) == 1
-    with pytest.raises(ValueError, match="matching work limit"):
+    with pytest.raises(ResourceLimitError, match="matching work limit"):
         doc.select(",".join(["[absent]"] * 256))
 
 
@@ -171,7 +171,7 @@ def test_relative_cache_rotation_preserves_late_and_negated_matches() -> None:
 
 def test_relative_cache_limit_within_one_candidate() -> None:
     doc = parse("<i></i>" * 8_192 + "<b></b>")
-    with pytest.raises(ValueError, match="relative-selector cache limit"):
+    with pytest.raises(ResourceLimitError, match="relative-selector cache limit"):
         doc.select_one("i:has(.x, .y) ~ b")
 
 
@@ -191,7 +191,7 @@ print(getrusage(RUSAGE_SELF).ru_maxrss - before)
 
 
 def test_selector_input_limit() -> None:
-    with pytest.raises(ValueError, match="256 KiB input limit"):
+    with pytest.raises(ResourceLimitError, match="256 KiB input limit"):
         parse("").select("p" * (256 * 1024 + 1))
 
 

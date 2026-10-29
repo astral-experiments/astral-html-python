@@ -60,7 +60,8 @@ assert link.text == "Read the guide"
 
 CSS queries support attribute selectors, combinators, and pseudo-classes such
 as `:scope`, `:nth-child()`, `:is()`, `:not()`, and `:has()`. Invalid or
-unsupported selectors such as `:hover` raise `ValueError` on their own.
+unsupported selectors such as `:hover` raise `astral_html.InvalidSelectorError`
+on their own.
 Forgiving lists in `:is()` and `:where()` discard unsupported alternatives,
 so `:is(a, :hover)` still matches `a` elements.
 
@@ -96,8 +97,9 @@ The benchmarks compare how much memory full and partial trees retain. [Retained 
   128 compounds along a matching path. Complex queries can also exceed a
   matching work or cache limit.
 
-Exceeding a limit raises `ValueError`. A query discards matches it found
-before reaching the limit.
+Exceeding an HTML or CSS limit raises `astral_html.ResourceLimitError`. A query
+discards matches it found before reaching the limit. Both `ResourceLimitError`
+and `InvalidSelectorError` inherit from `ValueError`.
 
 ## Threads
 
