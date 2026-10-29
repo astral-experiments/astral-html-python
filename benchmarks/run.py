@@ -5,6 +5,7 @@ import ctypes
 import gc
 import gzip
 import hashlib
+import json
 import math
 import multiprocessing
 import platform
@@ -40,6 +41,13 @@ FIXTURES = {
 ALL_LINKS = "a[href]"
 # Hash of the sorted SHA-256 digests of the distinct WCXB HTML bodies.
 WCXB_DIGEST = "70cace552e1b71cd59d3203bbff239b4db54af10ad3d931c166f57b4e64cf3ec"
+# Full and partial Astral outputs are compared directly for every page.
+WCXB_OUTPUT_DIGESTS = {
+    "astral-html": "e6e884566307fdab06aa2f85b921fe6a7c97adf5c26b59f2f70891f4f899ce47",
+    "selectolax (Lexbor)": "68e30847b1f7d4610372d7d111d3dad162505f2b56efad5b607ab9aa019f9401",
+    "lxml": "3b5585574d68fe0d6d36db36a4d534e26056f75e9875c2959f82c66de643e78e",
+    "Beautiful Soup": "baf4f6138625271a77e080cd18372e43fb4220cb14f5c90cfe6562d0369790b4",
+}
 
 
 def lexbor_links(doc, css):
@@ -171,7 +179,13 @@ def check_wcxb(path):
     print(f"{len(pages):,} distinct pages, {size:,} bytes")
     matching, differing = [], []
     agreements, rejected, counts = Counter(), Counter(), Counter()
-    for key, (filename, body) in pages.items():
+    digests = {
+        name: hashlib.sha256()
+        for name, _, _ in PARSERS
+        if name != "astral-html partial"
+    }
+    for key in sorted(pages):
+        filename, body = pages[key]
         outputs = {}
         for name, parse, links in PARSERS:
             try:
@@ -185,6 +199,11 @@ def check_wcxb(path):
             raise ValueError(
                 f"{filename}: partial-tree links differ from the full tree"
             )
+        for name, digest in digests.items():
+            # A rejection serializes to null, and a successful empty page to [].
+            digest.update(key)
+            record = json.dumps(outputs.get(name), separators=(",", ":"))
+            digest.update(record.encode("ascii"))
         reference = outputs["selectolax (Lexbor)"]
         for name, pairs in outputs.items():
             agreements[name] += pairs == reference
@@ -205,6 +224,11 @@ def check_wcxb(path):
         f"Outputs were identical on {len(matching)}.",
         flush=True,
     )
+    if not matching:
+        raise ValueError("No pages produced identical output across all parsers")
+    observed = {name: digest.hexdigest() for name, digest in digests.items()}
+    if observed != WCXB_OUTPUT_DIGESTS:
+        raise ValueError(f"WCXB outputs differ from the pinned results: {observed}")
     return matching, differing
 
 
@@ -242,8 +266,6 @@ def run_wcxb(path, samples, check_only):
     groups = check_wcxb(path)
     if check_only:
         return
-    if not groups[0]:
-        raise ValueError("No pages produced identical output across all parsers")
     worker = partial(wcxb_sample, path, groups)
     print(
         "\n| Sample | Parser | All completed (µs/page) | Identical output (µs/page) |"
