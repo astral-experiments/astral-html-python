@@ -10,6 +10,9 @@ The three snapshots below exercise page-specific selectors. A separate
 benchmark compares link extraction on 1,867 distinct HTML bodies across seven page
 types. [Large-corpus benchmark](wcxb.md)
 
+The wheel benchmark compares native and stable-ABI builds on both supported
+interpreters using seven workloads and 140 pages. [Wheel ABI results](wheel-abi.md)
+
 | Snapshot | HTML bytes | All `a` | All `a[href]` | Filtered links | Filtered CSS selector |
 | --- | ---: | ---: | ---: | ---: | --- |
 | PyPI package index | 6,144 | 16 | 16 | 8 | `body > a[data-requires-python]` |
