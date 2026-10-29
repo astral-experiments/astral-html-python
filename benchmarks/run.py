@@ -41,7 +41,8 @@ FIXTURES = {
 ALL_LINKS = "a[href]"
 # Hash of the sorted SHA-256 digests of the distinct WCXB HTML bodies.
 WCXB_DIGEST = "70cace552e1b71cd59d3203bbff239b4db54af10ad3d931c166f57b4e64cf3ec"
-# Full and partial Astral outputs are compared directly for every page.
+# Link counts can stay the same when pairs change order or a different page
+# fails. Pin each parser's outputs and compare the two Astral modes per page.
 WCXB_OUTPUT_DIGESTS = {
     "astral-html": "e6e884566307fdab06aa2f85b921fe6a7c97adf5c26b59f2f70891f4f899ce47",
     "selectolax (Lexbor)": "68e30847b1f7d4610372d7d111d3dad162505f2b56efad5b607ab9aa019f9401",
@@ -66,6 +67,8 @@ def soup_links(doc, css):
     return [(node.get("href"), node.get_text()) for node in doc.select(css)]
 
 
+# Start each scrape from response bytes. Astral accepts text, so its UTF-8
+# decode belongs in the timed call. The other parsers accept bytes directly.
 PARSERS = [
     ("astral-html", lambda raw: astral_html.parse(raw.decode("utf-8")), astral_links),
     ("selectolax (Lexbor)", LexborHTMLParser, lexbor_links),
@@ -255,6 +258,8 @@ def wcxb_sample(path, groups, seed):
             for body in batch:
                 links(parse(body), ALL_LINKS)
             durations[i] = perf_counter_ns() - before
+        # The identical-output pages count toward both means. Reuse their timings
+        # so both columns describe the same run.
         times[name] = (
             sum(durations) / total / 1000,
             durations[0] / len(bodies[0]) / 1000,

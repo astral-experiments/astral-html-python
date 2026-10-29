@@ -31,6 +31,7 @@ impl ElementRef<'_> {
         self.budget.visit(self.shape);
         let mut scanned = 0;
         let value = self.tree.attribute(self.index, |key| {
+            // Visiting a key costs work even if its length rules it out immediately.
             scanned += 1;
             equal_bytes(
                 key,

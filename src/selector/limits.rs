@@ -202,8 +202,10 @@ impl MatchBudget {
         if shape.has_relative {
             self.relative_cache
                 .record("CSS selector exceeded the relative-selector cache limit");
-            // add_element_unique_hashes declines nonempty element subtrees.
-            // A leaf (or a text-first subtree) can have a cached empty filter.
+            // With no element children, Servo can cache an empty filter and
+            // scan selector names without calling our name or attribute tests.
+            // Treat a leading text node as possibly text-only to avoid walking
+            // the children again on every probe.
             let first = element.index + 1;
             if self.can_build_filter
                 && element.index < self.empty_end.get()
