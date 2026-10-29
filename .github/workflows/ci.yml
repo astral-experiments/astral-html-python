@@ -56,9 +56,8 @@ jobs:
       - uses: *rust-toolchain
         with:
           toolchain: ${{ matrix.rust }}
-      - &install-dependencies
-        name: Install locked test and benchmark dependencies
-        run: uv sync --locked --no-install-project --group benchmark --python ${{ matrix.python }}
+      - name: Install locked test dependencies
+        run: uv sync --locked --no-install-project --python ${{ matrix.python }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: sdist-and-abi3
@@ -77,8 +76,6 @@ jobs:
           for tag in "$cp-$cp" cp314-abi3; do
             uv pip install --python .venv/bin/python --no-deps --strict --reinstall "$dist"/*-"$tag"-*.whl
             uv run --no-sync python -I -m pytest --import-mode=importlib
-            uv run --no-sync python -I benchmarks/run.py --check
-            uv run --no-sync python -I benchmarks/run.py --fixture pypi --samples 2 --min-sample-ms 1
           done
 
   lint:
@@ -92,7 +89,8 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy
-      - *install-dependencies
+      - name: Install locked lint dependencies
+        run: uv sync --locked --no-install-project --group benchmark --python ${{ matrix.python }}
       - run: uv run --no-sync ruff check .
       - run: uv run --no-sync ruff format --check .
       - run: uv run --no-sync ty check

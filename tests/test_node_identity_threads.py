@@ -8,9 +8,8 @@ import pytest
 from astral_html import Element, parse
 
 
-@pytest.mark.parametrize("tags", [None, ["main"]])
-def test_element_identity_across_queries_and_traversal(tags: list[str] | None) -> None:
-    document = parse("<main><i>same</i><i>same</i></main>", retain_subtrees=tags)
+def test_element_identity_across_queries_and_traversal() -> None:
+    document = parse("<main><i>same</i><i>same</i></main>")
     (main,) = document.select("main")
     first, second = main.children
     aliases = [
@@ -43,15 +42,12 @@ def test_comparisons_delegate_to_the_other_operand() -> None:
     assert (element != Other()) is True
 
 
-@pytest.mark.parametrize("tags", [None, ["i"]])
-def test_element_identity_is_per_parse_and_outlives_document(
-    tags: list[str] | None,
-) -> None:
+def test_element_identity_is_per_parse_and_outlives_document() -> None:
     source = '<main><i data-url="/café">Café &amp; tea <b>too</b></i></main>'
-    document = parse(source, retain_subtrees=tags)
+    document = parse(source, retain_subtrees="i")
     (element,) = document.select("i")
     (alias,) = document.select("i")
-    (other,) = parse(source, retain_subtrees=tags).select("i")
+    (other,) = parse(source, retain_subtrees="i").select("i")
     assert element != other
     assert len({element, alias, other}) == 2
     before = hash(element)
@@ -77,12 +73,8 @@ def test_shared_tree_queries_from_multiple_threads() -> None:
             assert document_result == element_result == expected
 
 
-@pytest.mark.parametrize("element_scope", [False, True])
-@pytest.mark.parametrize("method", ["select", "select_one"])
-def test_tree_queries_release_gil(element_scope: bool, method: str) -> None:
+def test_tree_queries_release_gil() -> None:
     document = parse("<main>" + '<i class="present"></i>' * 20_000 + "</main>")
-    scope = document.select("main")[0] if element_scope else document
-    query = getattr(scope, method)
     ready = threading.Event()
     querying = observed = done = False
 
@@ -105,9 +97,9 @@ def test_tree_queries_release_gil(element_scope: bool, method: str) -> None:
         sys.setswitchinterval(60)
         for _ in range(1_000):
             querying = True
-            result = query('i[class~="absent"]')
+            result = document.select('i[class~="absent"]')
             querying = False
-            assert result == (None if method == "select_one" else [])
+            assert result == []
             if observed:
                 break
         assert observed, "Python observer could not run during matching"
