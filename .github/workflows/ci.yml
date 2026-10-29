@@ -1,64 +1,43 @@
-name: CI
-
+name: Published benchmark measurements
 on:
   push:
-  pull_request:
-
+    branches:
+      - codex/bench-suite-reader-20261029
 permissions:
   contents: read
-
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy: &toolchains
-      matrix:
-        include:
-          - python: '3.14'
-            rust: '1.97.0'
-          - python: '3.15'
-            rust: stable
+  measure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
-      - &checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - &setup-uv
-        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: Check out benchmark driver
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          path: driver
+      - name: Check out parser and published benchmarks
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ddc1b44f71c72985559c63aef791f121a18e5a32
+          persist-credentials: false
+          path: source
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
         with:
           version: '0.12.23'
-      - &setup-python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          python-version: ${{ matrix.python }}
-      - uses: &rust-toolchain dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
+          python-version: '3.14'
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
         with:
-          toolchain: ${{ matrix.rust }}
-      - &install-dependencies
-        name: Install locked test and benchmark dependencies
-        run: uv sync --locked --no-install-project --group benchmark --python ${{ matrix.python }}
-      - name: Build a source distribution, then a wheel from that archive
-        run: >-
-          uv build --no-sources --out-dir "$RUNNER_TEMP/dist" --python ${{ matrix.python }}
-          --config-setting 'build-args=--compatibility pypi --auditwheel check'
-      - name: Test the installed wheel
+          toolchain: '1.99.0'
+      - name: Install locked dependencies and build the release wheel from the sdist
+        working-directory: source
         run: |
-          uv pip install --python .venv/bin/python --no-deps --strict "$RUNNER_TEMP"/dist/*.whl
-          uv run --no-sync python -I -m pytest --import-mode=importlib
-          uv run --no-sync python -I benchmarks/run.py --check
-          uv run --no-sync python -I benchmarks/run.py --fixture pypi --samples 2 --min-sample-ms 1
-
-  lint:
-    runs-on: ubuntu-latest
-    strategy: *toolchains
-    steps:
-      - *checkout
-      - *setup-uv
-      - *setup-python
-      - uses: *rust-toolchain
-        with:
-          toolchain: ${{ matrix.rust }}
-          components: rustfmt, clippy
-      - *install-dependencies
-      - run: uv run --no-sync ruff check .
-      - run: uv run --no-sync ruff format --check .
-      - run: uv run --no-sync ty check
-      - run: cargo fmt --check
-      - run: cargo clippy --locked --all-targets -- -D warnings
+          uv sync --locked --no-install-project --group benchmark --python 3.14
+          uv build --no-sources --out-dir "$RUNNER_TEMP/dist" --python .venv/bin/python --config-setting 'build-args=--compatibility pypi --auditwheel check'
+          uv pip install --python .venv/bin/python --no-deps --reinstall "$RUNNER_TEMP"/dist/*.whl
+      - name: Fetch pinned WCXB archive, validate outputs, and measure
+        working-directory: source
+        run: |
+          curl --fail --location --retry 3 --retry-all-errors 'https://codeload.github.com/Murrough-Foley/web-content-extraction-benchmark/tar.gz/c039d5ee9f5a3a984a0e167e63aacd04e76e78a9' -o "$RUNNER_TEMP/wcxb.tar.gz"
+          .venv/bin/python -I "$GITHUB_WORKSPACE/driver/.github/measure_published.py" probe
