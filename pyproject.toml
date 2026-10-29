@@ -41,6 +41,8 @@ locked = true
 
 [tool.uv]
 exclude-newer = "7 days"
+# Editable installs read the Python package directly from the checkout, so
+# Python-only edits do not need to trigger a rebuild of the Rust extension.
 cache-keys = [
     { file = "pyproject.toml" },
     { file = "README.md" },
