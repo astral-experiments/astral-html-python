@@ -8,6 +8,7 @@ exclude-newer-span = "P7D"
 
 [[package]]
 name = "astral-html-python"
+version = "0.0.1"
 source = { editable = "." }
 
 [package.dev-dependencies]
