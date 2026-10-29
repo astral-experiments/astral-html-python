@@ -18,21 +18,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 
-[project.readme]
-content-type = "text/markdown"
-text = """
-This project is an experiment in developing a library using Codex. The content below the line, as well as all the code, are written by Codex.
-
----
-
-astral-html-python is a fast HTML parser for Python web scrapers. It uses the
-[astral-html](https://github.com/astral-sh/astral-html) tokenizer and a Rust
-tree to find elements by CSS selector and extract their text and attributes.
-
-[Quick start](https://github.com/astral-experiments/astral-html-python#quick-start) ·
-[Benchmark plot](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/filtered-links.png) ·
-[Benchmark results](https://github.com/astral-experiments/astral-html-python/blob/main/benchmarks/README.md)
-"""
+readme = "README.md"
 
 [project.urls]
 Documentation = "https://github.com/astral-experiments/astral-html-python/blob/main/docs/parsing.md"
@@ -52,6 +38,7 @@ locked = true
 exclude-newer = "7 days"
 cache-keys = [
     { file = "pyproject.toml" },
+    { file = "README.md" },
     { file = "Cargo.toml" },
     { file = "Cargo.lock" },
     { file = "src/**/*.rs" },
