@@ -1,0 +1,46 @@
+name: Wheel ABI measurements
+on:
+  push:
+    branches:
+      - codex/measure-wheel-abi-432c7a2
+permissions:
+  contents: read
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+        with:
+          version: '0.12.23'
+          enable-cache: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        id: python314
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        id: python315
+        with:
+          python-version: '3.15'
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
+        with:
+          toolchain: '1.97.0'
+      - name: Build wheels, check outputs, and measure paired samples
+        env:
+          PYTHON_314: ${{ steps.python314.outputs.python-path }}
+          PYTHON_315: ${{ steps.python315.outputs.python-path }}
+          PARSER_REVISION: 432c7a23630c06dd6fd8fb0c0ff7254552cf32ac
+        run: |
+          bash .bench-wheel-abi/run.sh "$PARSER_REVISION" "$RUNNER_TEMP/wheel-abi-report"
+          cat "$RUNNER_TEMP/wheel-abi-report/cp314/report.md" "$RUNNER_TEMP/wheel-abi-report/cp315/report.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: wheel-abi-report
+          path: ${{ runner.temp }}/wheel-abi-report
+          if-no-files-found: error
+          retention-days: 90
