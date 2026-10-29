@@ -9,11 +9,11 @@ def test_parse_and_traverse() -> None:
         '<main>Hello <a HREF="/guide?x=1&amp;y=2" href="ignored" disabled>'
         "Read <strong>the guide</strong></a>!</main>"
     )
-    main, link, bold = document.elements()
+    main, link, bold = document.select("*")
     assert (main.tag, link.tag, bold.tag) == ("main", "a", "strong")
     assert main.text == "Hello Read the guide!"
-    assert main.children == document.elements("A") == [link]
-    assert main.elements() == [link, bold]
+    assert main.children == document.select("A") == [link]
+    assert main.select("*") == [link, bold]
     assert link.children == [bold]
     assert link.parent == main
 
@@ -28,14 +28,14 @@ def test_parse_and_traverse() -> None:
 
 def test_lexical_scopes_and_text_modes() -> None:
     document = parse("<P>one<p>two<script>if (a < b) x = '&amp;';</script>")
-    outer, inner = document.elements("p")
+    outer, inner = document.select("p")
     assert inner.parent == outer
     assert outer.text == "onetwoif (a < b) x = '&amp;';"
     assert document.select_one("html") is None
 
 
 def test_newlines_are_normalized_in_text_and_attributes() -> None:
-    (paragraph,) = parse('<p title="a\r\nb\rc">a\r\nb\rc</p>').elements()
+    (paragraph,) = parse('<p title="a\r\nb\rc">a\r\nb\rc</p>').select("*")
     assert paragraph.text == paragraph.get("title") == "a\nb\nc"
 
 
@@ -45,7 +45,7 @@ def test_malformed_end_tags_void_elements_and_self_closing_scopes() -> None:
         '<section><input value="&amp;"><a><span/>x</a>outside</section>'
     )
     full = parse(source)
-    main, first, _, section, field, second, span = full.elements()
+    main, first, _, section, field, second, span = full.select("*")
     assert first.parent == main
     assert section.children == [field, second]
     assert section.text == "xoutside"
@@ -53,9 +53,9 @@ def test_malformed_end_tags_void_elements_and_self_closing_scopes() -> None:
     assert span.text == "x"
 
     partial = parse(source, tags=["a"])
-    assert [e.tag for e in partial.elements()] == ["a", "em", "a", "span"]
+    assert [e.tag for e in partial.select("*")] == ["a", "em", "a", "span"]
     for doc in (full, partial):
-        assert [e.text for e in doc.elements("a")] == ["start inner", "x"]
+        assert [e.text for e in doc.select("a")] == ["start inner", "x"]
 
 
 @pytest.mark.parametrize("tags", [None, ["p"]])
@@ -67,10 +67,10 @@ def test_deep_mismatched_end_tags_close_innermost_scope(tags: list[str] | None) 
         + "</p>between<p>second<b>child</p><b>last</p>outside"
         + "<p>third<i>child</div>outside<p>fourth"
     )
-    outer, first, second, third, fourth = parse(source, tags=tags).elements("p")
+    outer, first, second, third, fourth = parse(source, tags=tags).select("p")
     assert (first.text, second.text) == ("firstchild", "secondchild")
     assert outer.text == "outerfirstchildbetweensecondchildlast"
-    assert outer.elements("p") == [first, second]
+    assert outer.select("p") == [first, second]
     # </div> closes the third paragraph even when divs are discarded.
     assert (third.text, fourth.text) == ("thirdchild", "fourth")
 
@@ -80,7 +80,7 @@ def test_rcdata_and_raw_text(tags: list[str] | None) -> None:
     doc = parse(
         "<textarea>&amp; <b>x</b></textarea><style>&amp; <b>x</b></style>", tags=tags
     )
-    textarea, style = doc.elements()
+    textarea, style = doc.select("*")
     assert textarea.text == "& <b>x</b>"
     assert style.text == "&amp; <b>x</b>"
 
@@ -88,7 +88,7 @@ def test_rcdata_and_raw_text(tags: list[str] | None) -> None:
 def test_partial_tree_roots_and_discarded_branches() -> None:
     source = "<main><h1>discard</h1><a>first <b>bold</b></a><aside><a>second</a>"
     doc = parse(source, tags=iter(["A"]))
-    first, bold, second = doc.elements()
+    first, bold, second = doc.select("*")
     assert (first.text, bold.text, second.text) == ("first bold", "bold", "second")
     assert first.parent is None
     assert doc.select("a > b") == [bold]
@@ -98,24 +98,24 @@ def test_partial_tree_roots_and_discarded_branches() -> None:
 
 def test_partial_tree_with_nested_matches_or_empty_filter() -> None:
     source = '<div><a href="outer"><span><a href="inner">nested</a></span></a></div>'
-    outer, span, inner = parse(source, tags=["a", "span"]).elements()
+    outer, span, inner = parse(source, tags=["a", "span"]).select("*")
     assert (outer.get("href"), span.tag, inner.get("href")) == (
         "outer",
         "span",
         "inner",
     )
-    assert parse(source, tags=[]).elements() == []
+    assert parse(source, tags=[]).select("*") == []
 
 
 def test_sibling_selectors_across_discarded_ancestors() -> None:
     source = "<main><a>one</a>gap<b>b</b><a>two</a></main><section><a>three</a>"
     full = parse(source)
-    _, two, _ = full.elements("a")
+    _, two, _ = full.select("a")
     assert (
         full.select("main > a + b + a") == full.select("main > a:nth-child(3)") == [two]
     )
     partial = parse(source, tags=["a"])
-    _, two, three = partial.elements("a")
+    _, two, three = partial.select("a")
     assert partial.select("a + a") == [two, three]
     assert partial.select("a:nth-child(2)") == [two]
 
@@ -158,7 +158,7 @@ def test_text_outside_elements_does_not_consume_the_node_limit() -> None:
 
 
 def test_empty_document_and_invalid_input() -> None:
-    assert parse("").elements() == []
+    assert parse("").select("*") == []
     with pytest.raises(TypeError):
         parse(b"<p>bytes</p>")  # ty: ignore[invalid-argument-type]
     with pytest.raises(TypeError):

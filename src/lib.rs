@@ -33,13 +33,6 @@ struct Element {
     index: usize,
 }
 
-fn elements(tree: &Arc<Tree>, root: Option<usize>, tag: Option<&str>) -> Vec<Element> {
-    tree.elements_in(tree.descendants(root))
-        .filter(|(_, name)| tag.is_none_or(|tag| name.eq_ignore_ascii_case(tag.as_bytes())))
-        .map(|(i, _)| tree.element(i))
-        .collect()
-}
-
 fn select<'a>(
     py: Python<'_>,
     tree: &'a Arc<Tree>,
@@ -55,12 +48,6 @@ fn select<'a>(
 
 #[pymethods]
 impl Document {
-    /// Return all retained elements in source order, optionally filtered by tag.
-    #[pyo3(signature = (tag=None))]
-    fn elements(&self, py: Python<'_>, tag: Option<&str>) -> Vec<Element> {
-        py.detach(|| elements(&self.tree, None, tag))
-    }
-
     /// Find all matching elements in source order.
     fn select<'py>(&self, py: Python<'py>, css: &str) -> PyResult<Bound<'py, PyList>> {
         PyList::new(py, select(py, &self.tree, None, css, false)?)
@@ -136,12 +123,6 @@ impl Element {
         tree.elements_in(tree.children(self.index))
             .map(|(i, _)| tree.element(i))
             .collect()
-    }
-
-    /// List descendant elements, optionally filtered by tag name.
-    #[pyo3(signature = (tag=None))]
-    fn elements(&self, py: Python<'_>, tag: Option<&str>) -> Vec<Self> {
-        py.detach(|| elements(&self.tree, Some(self.index), tag))
     }
 
     /// Find matching descendants. Use :scope in the selector to refer to this element.

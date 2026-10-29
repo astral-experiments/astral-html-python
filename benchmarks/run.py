@@ -24,10 +24,18 @@ from lxml import html
 from selectolax.lexbor import LexborHTMLParser
 
 FIXTURES = {
-    # Each pair pins the published all-link and filtered-link counts.
-    "pypi": ("iniconfig.html", "body > a[data-requires-python]", (16, 8)),
-    "github": ("github-parse5.html", "table.files tr > td.content a[href]", (99, 7)),
-    "wikipedia": ("wiki-42.html", '#mw-content-text > p a[href^="/wiki/"]', (1603, 15)),
+    # Counts for bare anchors, links with href, and the page-specific selector.
+    "pypi": ("iniconfig.html", "body > a[data-requires-python]", (16, 16, 8)),
+    "github": (
+        "github-parse5.html",
+        "table.files tr > td.content a[href]",
+        (99, 99, 7),
+    ),
+    "wikipedia": (
+        "wiki-42.html",
+        '#mw-content-text > p a[href^="/wiki/"]',
+        (1604, 1603, 15),
+    ),
 }
 ALL_LINKS = "a[href]"
 # Hash of the sorted SHA-256 digests of the distinct WCXB HTML bodies.
@@ -70,7 +78,7 @@ def parse_and_extract(read, links, css):
 def workloads(source, filtered_css, counts):
     reference = LexborHTMLParser(source.decode("utf-8"))
     expected = {}
-    for css, count in zip((ALL_LINKS, filtered_css), counts, strict=True):
+    for css, count in zip(("a", ALL_LINKS, filtered_css), counts, strict=True):
         pairs = lexbor_links(reference, css)
         if len(pairs) != count:
             raise ValueError(f"{css!r}: expected {count} links, found {len(pairs)}")
@@ -79,11 +87,14 @@ def workloads(source, filtered_css, counts):
     for name, parse, links in PARSERS:
         read = partial(parse, source)
         extract = partial(parse_and_extract, read, links)
-        queries = [("parse + all links", extract, ALL_LINKS)]
+        existing = partial(links, read())
+        queries = [
+            ("parse + all links", extract, ALL_LINKS),
+            ("all anchors, existing tree", existing, "a"),
+        ]
         # Filtered selectors need ancestors discarded by partial parsing.
         if name != "astral-html partial":
             jobs.append((f"{name} | parse", read))
-            existing = partial(links, read())
             queries.extend(
                 [
                     ("parse + filtered links", extract, filtered_css),

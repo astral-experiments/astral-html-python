@@ -21,12 +21,13 @@ The tree can have several roots. Text outside those roots is discarded.
 The tree stays in Rust. Queries create Python handles for the elements they
 return.
 
-`elements()` lists all elements in source order. Pass a tag name to filter
-the list. For example, `elements("a")` returns only anchors. `select(css)`
-returns all CSS matches in source order. Use `select_one(css)` when you need
-only the first match. It returns `None` if nothing matches.
+`select(css)` returns matching elements in source order. Use `select("a")`
+for anchors or `select("*")` for every element. Escape characters that have a
+special meaning in CSS. For example, `select(r"x\:card")` matches a tag named
+`x:card`. `select_one(css)` returns the first match, or `None` if there is no
+match.
 
-On an element, all three methods search its descendants. A selector can still
+On an element, both methods search its descendants. A selector can still
 use ancestors above that element when deciding whether a descendant matches.
 Use `:scope` to refer to the element you called the method on.
 
@@ -36,7 +37,7 @@ from astral_html import parse
 doc = parse(
     '<article><section><a href="/guide">Read <b>the guide</b></a></section></article>'
 )
-(section,) = doc.elements("section")
+(section,) = doc.select("section")
 (link,) = section.select("article a[href]")
 assert section.select(":scope > a") == [link]
 assert section.select("section") == []
