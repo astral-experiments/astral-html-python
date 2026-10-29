@@ -120,6 +120,11 @@ struct SelectorShape {
     components: usize,
 }
 
+pub enum SelectError {
+    InvalidSelector(String),
+    ResourceLimit(String),
+}
+
 /// Scan candidates in source order, materializing only matching node indices.
 /// `root` scopes the candidates, not the ancestors a selector can inspect.
 pub fn select(
@@ -127,7 +132,7 @@ pub fn select(
     root: Option<usize>,
     css: &str,
     first: bool,
-) -> Result<Vec<usize>, String> {
+) -> Result<Vec<usize>, SelectError> {
     // Small Python worker stacks need room for selector recursion and for
     // :has() to descend up to 256 HTML levels. Keep parsing and drops here too.
     stacker::maybe_grow(1024 * 1024, 2 * 1024 * 1024, || {
@@ -142,18 +147,21 @@ fn select_with_stack(
     root: Option<usize>,
     css: &str,
     first: bool,
-) -> Result<Vec<usize>, String> {
+) -> Result<Vec<usize>, SelectError> {
     if css.len() > MAX_SELECTOR_BYTES {
-        return Err("CSS selector exceeds the 256 KiB input limit".to_owned());
+        return Err(SelectError::ResourceLimit(
+            "CSS selector exceeds the 256 KiB input limit".to_owned(),
+        ));
     }
-    let prepared = prepare_selector(css)?;
+    let prepared = prepare_selector(css).map_err(SelectError::ResourceLimit)?;
     let mut parser = cssparser::Parser::new(&prepared);
-    let selectors = SelectorList::parse(&Css, &mut parser, ParseRelative::No)
-        .map_err(|error| format!("invalid CSS selector {css:?}: {error:?}"))?;
+    let selectors = SelectorList::parse(&Css, &mut parser, ParseRelative::No).map_err(|error| {
+        SelectError::InvalidSelector(format!("invalid CSS selector {css:?}: {error:?}"))
+    })?;
     let selectors = selectors.slice();
     let mut shape = SelectorShape::default();
     for selector in selectors {
-        check_match_depth(selector, 0, &mut shape)?;
+        check_match_depth(selector, 0, &mut shape).map_err(SelectError::ResourceLimit)?;
     }
     // Only a literal tag in the rightmost compound is required of every match.
     // Selector lists and selectors without a literal tag use the full matcher for each node.
@@ -210,6 +218,7 @@ fn select_with_stack(
         }
         output
     })
+    .map_err(SelectError::ResourceLimit)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

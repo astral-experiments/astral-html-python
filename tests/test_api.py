@@ -2,7 +2,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
-from astral_html import parse
+from astral_html import ResourceLimitError, parse
 
 
 def test_parse_and_traverse() -> None:
@@ -160,9 +160,9 @@ def test_input_limits_include_discarded_content() -> None:
     source = "é" * (64 * 1024 * 1024 + 1)
     for tags in (None, ["a"]):
         parse("<div>" * 256 + "<br>", retain_subtrees=tags)
-        with pytest.raises(ValueError, match="nesting limit"):
+        with pytest.raises(ResourceLimitError, match="nesting limit"):
             parse("<div>" * 257, retain_subtrees=tags)
-        with pytest.raises(ValueError, match="byte limit"):
+        with pytest.raises(ResourceLimitError, match="byte limit"):
             parse(source, retain_subtrees=tags)
 
 

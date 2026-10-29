@@ -11,6 +11,19 @@ mod selector;
 mod tree;
 use tree::{Kind, Tree};
 
+pyo3::create_exception!(
+    astral_html,
+    InvalidSelectorError,
+    PyValueError,
+    "The CSS selector is invalid or unsupported."
+);
+pyo3::create_exception!(
+    astral_html,
+    ResourceLimitError,
+    PyValueError,
+    "Parsing HTML or querying the tree exceeded a resource limit."
+);
+
 impl Tree {
     fn element(self: &Arc<Self>, index: usize) -> Element {
         Element {
@@ -49,7 +62,12 @@ fn select<'a>(
 ) -> PyResult<impl ExactSizeIterator<Item = Element> + use<'a>> {
     let indices = py
         .detach(|| selector::select(tree, root, css, first))
-        .map_err(PyValueError::new_err)?;
+        .map_err(|error| match error {
+            selector::SelectError::InvalidSelector(message) => {
+                InvalidSelectorError::new_err(message)
+            }
+            selector::SelectError::ResourceLimit(message) => ResourceLimitError::new_err(message),
+        })?;
     Ok(indices.into_iter().map(move |i| tree.element(i)))
 }
 
@@ -191,7 +209,7 @@ fn parse(
     let tags = retain_subtrees.map(retained_tag_names).transpose()?;
     let tree = py
         .detach(|| Tree::parse(html, tags.as_ref()))
-        .map_err(PyValueError::new_err)?;
+        .map_err(ResourceLimitError::new_err)?;
     Ok(Document {
         tree: Arc::new(tree),
     })
@@ -199,6 +217,14 @@ fn parse(
 
 #[pymodule(gil_used = true)]
 fn _astral_html(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add(
+        "InvalidSelectorError",
+        module.py().get_type::<InvalidSelectorError>(),
+    )?;
+    module.add(
+        "ResourceLimitError",
+        module.py().get_type::<ResourceLimitError>(),
+    )?;
     module.add_class::<Document>()?;
     module.add_class::<Element>()?;
     module.add_function(wrap_pyfunction!(parse, module)?)?;

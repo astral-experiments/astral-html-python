@@ -1,6 +1,9 @@
 from collections.abc import Iterable, Mapping
 from typing import Never, final, overload
 
+class InvalidSelectorError(ValueError): ...
+class ResourceLimitError(ValueError): ...
+
 def parse(
     html: str, *, retain_subtrees: str | Iterable[str] | None = None
 ) -> Document: ...

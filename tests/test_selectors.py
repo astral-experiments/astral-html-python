@@ -1,5 +1,5 @@
 import pytest
-from astral_html import parse
+from astral_html import InvalidSelectorError, ResourceLimitError, parse
 
 
 def test_matching_and_source_order() -> None:
@@ -58,9 +58,26 @@ def test_long_substrings_are_only_ascii_case_insensitive() -> None:
 
 @pytest.mark.parametrize("selector", ["", "[", "div >", "div,,span", ".", "a:hover"])
 def test_invalid_and_unsupported_selectors(selector: str) -> None:
-    with pytest.raises(ValueError, match="invalid CSS selector") as error:
+    with pytest.raises(InvalidSelectorError, match="invalid CSS selector") as error:
         parse("<a>").select(selector)
     assert selector in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("selector", "error_type"),
+    [("a:hover", InvalidSelectorError), ("a" * (256 * 1024 + 1), ResourceLimitError)],
+    ids=["unsupported", "input-limit"],
+)
+def test_query_errors_are_distinct_value_errors(
+    selector: str, error_type: type[ValueError]
+) -> None:
+    doc = parse("<main><a></a></main>")
+    (main,) = doc.select("main")
+    for scope in (doc, main):
+        for query in (scope.select, scope.select_one):
+            with pytest.raises(ValueError) as error:
+                query(selector)
+            assert type(error.value) is error_type
 
 
 @pytest.mark.parametrize(
@@ -77,7 +94,7 @@ def test_invalid_and_unsupported_selectors(selector: str) -> None:
     ],
 )
 def test_shadow_host_is_unsupported(selector: str) -> None:
-    with pytest.raises(ValueError, match="invalid CSS selector"):
+    with pytest.raises(InvalidSelectorError, match="invalid CSS selector"):
         parse("<div><p>").select(selector)
 
 
