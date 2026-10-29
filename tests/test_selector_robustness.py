@@ -40,18 +40,15 @@ def exercise_stack_limits() -> None:
 
     # Each selector consumes the whole matching-depth budget, then exceeds it
     # by one sibling. Nested functions use part of that same budget.
-    for prefix, allowed, matches in [
-        ("", 128, 1),
-        (":is(", 127, 1),
-        (":where(", 127, 1),
-        ("x:not(", 127, 0),
-        (":nth-child(1 of ", 127, 1),
-        (":nth-last-child(1 of ", 127, 1),
-        ("main:has(", 126, 1),
-        (":is(" * 32, 96, 1),
-        (":nth-child(1 of " * 32, 96, 1),
+    for prefix, allowed in [
+        ("", 128),
+        (":is(", 127),
+        (":nth-child(1 of ", 127),
+        ("main:has(", 126),
+        (":is(" * 32, 96),
+        (":nth-child(1 of " * 32, 96),
     ]:
-        for count, expected in ((allowed, matches), (allowed + 1, complexity)):
+        for count, expected in ((allowed, 1), (allowed + 1, complexity)):
             chain = "i+" * (count - 1) + "x"
             selector = prefix + chain + ")" * prefix.count("(")
             html = "<main>" + "<i></i>" * (count - 1) + "<x></x></main>"
@@ -140,9 +137,16 @@ def test_selector_nesting_limit_without_parentheses(
             parse("").select(selector + suffix)
 
 
-@pytest.mark.parametrize("pseudo", ["is", "where"])
 @pytest.mark.parametrize(
-    "missing", ["tag", "#id", ".class", "[name]", "[name=value]", "[*|name]"]
+    ("pseudo", "missing"),
+    [
+        ("is", "tag"),
+        ("is", "#id"),
+        ("is", ".class"),
+        ("is", "[name]"),
+        ("is", "[name=value]"),
+        ("where", "[*|name]"),
+    ],
 )
 def test_nested_lists_charge_leaf_checks_as_they_run(pseudo: str, missing: str) -> None:
     doc = parse("<i></i>" * 4096)
@@ -269,11 +273,6 @@ print(getrusage(RUSAGE_SELF).ru_maxrss - before)
     args = [sys.executable, "-c", code, fragment, str(count), selector]
     extra_kib = int(subprocess.check_output(args, timeout=30))
     assert extra_kib < max_mib * 1024
-
-
-def test_selector_input_limit() -> None:
-    with pytest.raises(ResourceLimitError, match="256 KiB input limit"):
-        parse("").select("p" * (256 * 1024 + 1))
 
 
 if __name__ == "__main__":

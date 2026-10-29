@@ -7,7 +7,7 @@ project supports CPython 3.14 and 3.15. This example selects 3.14.
 
 ```sh
 uv sync --locked --python 3.14
-uv run --locked --group benchmark pytest
+uv run --locked pytest
 uv run --locked ruff check .
 uv run --locked ruff format --check .
 uv run --locked --group benchmark ty check
@@ -31,7 +31,7 @@ uv build --sdist --no-sources --out-dir "$dist" --python 3.14
 uv build "$dist"/*.tar.gz --wheel --no-sources --out-dir "$dist" --python 3.14 \
     --config-setting 'build-args=--compatibility pypi --auditwheel check --features abi3'
 for py in 3.14 3.15; do
-    uv sync --locked --no-install-project --group benchmark --python "$py"
+    uv sync --locked --no-install-project --python "$py"
     uv pip install --python .venv/bin/python --no-deps --strict --reinstall "$dist"/*-cp314-abi3-*.whl
     .venv/bin/python -I -m pytest --import-mode=importlib
 done
@@ -39,6 +39,5 @@ done
 
 The `-I` flag prevents Python from adding the checkout to the import path.
 
-Set the package version in `pyproject.toml` and `Cargo.toml`. CI also checks
-the benchmark outputs and runs a short timing sample.
+Set the package version in `pyproject.toml` and `Cargo.toml`.
 [Cargo.toml](../Cargo.toml) · [CI workflow](../.github/workflows/ci.yml)

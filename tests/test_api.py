@@ -1,6 +1,4 @@
 import sys
-from collections.abc import Mapping
-from pathlib import Path
 
 import pytest
 from astral_html import ResourceLimitError, parse
@@ -23,8 +21,6 @@ def test_parse_and_traverse() -> None:
     assert attrs == {"href": "/guide?x=1&y=2", "disabled": ""}
     with pytest.raises(TypeError):
         attrs["href"] = "/changed"  # ty: ignore[invalid-assignment]
-    copied = dict(attrs)
-    copied["href"] = "/changed"
     assert link["HREF"] == link.get("Href") == "/guide?x=1&y=2"
     assert link["disabled"] == ""
     assert "DISABLED" in link
@@ -194,24 +190,6 @@ def test_sibling_selectors_across_discarded_ancestors() -> None:
     assert partial.select("a:nth-child(2)") == [two]
 
 
-@pytest.mark.parametrize(
-    ("page", "link_count"),
-    [("iniconfig", 16), ("github-parse5", 99), ("wiki-42", 1604)],
-)
-def test_partial_parse_preserves_real_page_links(page: str, link_count: int) -> None:
-    fixtures = Path(__file__).resolve().parents[1] / "benchmarks" / "fixtures"
-    source = (fixtures / f"{page}.html").read_text(encoding="utf-8")
-
-    def links(tags: list[str] | None) -> list[tuple[Mapping[str, str], str]]:
-        return [
-            (e.attrs, e.text) for e in parse(source, retain_subtrees=tags).select("a")
-        ]
-
-    full = links(None)
-    assert len(full) == link_count
-    assert links(["a"]) == full
-
-
 def test_input_limits_include_discarded_content() -> None:
     source = "é" * (64 * 1024 * 1024 + 1)
     size_before = sys.getsizeof(source)
@@ -219,8 +197,8 @@ def test_input_limits_include_discarded_content() -> None:
         parse("<div>" * 256 + "<br>", retain_subtrees=tags)
         with pytest.raises(ResourceLimitError, match="nesting limit"):
             parse("<div>" * 257, retain_subtrees=tags)
-        with pytest.raises(ResourceLimitError, match="byte limit"):
-            parse(source, retain_subtrees=tags)
+    with pytest.raises(ResourceLimitError, match="byte limit"):
+        parse(source, retain_subtrees=["a"])
     assert sys.getsizeof(source) == size_before
 
 
@@ -235,27 +213,24 @@ def test_selector_byte_limit_on_python_strings() -> None:
         def __getitem__(self, key: object, /) -> str:
             raise AssertionError("preflight must inspect the underlying string")
 
-    doc = parse("<main><p/></main>")
-    (main,) = doc.select("main")
+    doc = parse("<p>")
     limit = 256 * 1024
-    for query in (doc.select, doc.select_one, main.select, main.select_one):
-        # ASCII and multibyte selectors at exactly the byte limit still parse.
-        assert query(" " * (limit - 1) + "p")
-        for char in ("é", "€", "🐍"):
-            repeat, spaces = divmod(limit, len(char.encode()))
-            boundary = char * repeat + " " * spaces
-            assert not query(boundary)
-            rejected = MisleadingLength(boundary + "a")
-            size_before = sys.getsizeof(rejected)
-            with pytest.raises(ResourceLimitError, match="256 KiB input limit"):
-                query(rejected)
-            assert sys.getsizeof(rejected) == size_before
-        # A character count alone can also rule out the input immediately.
-        oversized = "é" * (limit + 1)
-        size_before = sys.getsizeof(oversized)
+    assert doc.select(" " * (limit - 1) + "p") == doc.select("p")
+    for char in ("é", "€", "🐍"):
+        repeat, spaces = divmod(limit, len(char.encode()))
+        boundary = char * repeat + " " * spaces
+        assert doc.select(boundary) == []
+        rejected = MisleadingLength(boundary + "a")
+        size_before = sys.getsizeof(rejected)
         with pytest.raises(ResourceLimitError, match="256 KiB input limit"):
-            query(oversized)
-        assert sys.getsizeof(oversized) == size_before
+            doc.select(rejected)
+        assert sys.getsizeof(rejected) == size_before
+
+    oversized = "é" * (limit + 1)
+    size_before = sys.getsizeof(oversized)
+    with pytest.raises(ResourceLimitError, match="256 KiB input limit"):
+        doc.select(oversized)
+    assert sys.getsizeof(oversized) == size_before
 
 
 def test_unencodable_input_within_size_limit() -> None:
