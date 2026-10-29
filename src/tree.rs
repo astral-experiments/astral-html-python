@@ -225,6 +225,13 @@ impl Tree {
         nodes.filter_map(|i| self.element_name(i).map(|name| (i, name)))
     }
 
+    pub fn text_in(&self, nodes: impl Iterator<Item = usize>) -> impl Iterator<Item = &str> {
+        nodes.filter_map(|i| match &self.nodes[i].kind {
+            Kind::Text(span) => Some(self.string(span)),
+            Kind::Element { .. } => None,
+        })
+    }
+
     /// Direct children, including text nodes.
     pub fn children(&self, index: usize) -> impl Iterator<Item = usize> {
         let mut nodes = self.descendants(Some(index));

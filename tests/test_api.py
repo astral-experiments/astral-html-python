@@ -47,6 +47,30 @@ def test_newlines_are_normalized_in_text_and_attributes() -> None:
     assert paragraph.text == paragraph.get("title") == "a\nb\nc"
 
 
+@pytest.mark.parametrize("retain", [None, "p"])
+def test_iter_text_preserves_fragment_boundaries(retain: str | None) -> None:
+    doc = parse(
+        "<main>outside<p>New<br>York</p><p>NewYork<br></p><p></p>"
+        "<p> a\r\n<b>é &amp; </b><script>&amp;</script>end </p>after</main>",
+        retain_subtrees=retain,
+    )
+    paragraphs = doc.select("p")
+    expected = [["New", "York"], ["NewYork"], [], [" a\n", "é & ", "&amp;", "end "]]
+    assert [list(p.iter_text()) for p in paragraphs] == expected
+    assert [p.text for p in paragraphs] == ["".join(parts) for parts in expected]
+
+
+def test_iter_text_iterator_lifetime_and_exhaustion() -> None:
+    (p,) = parse("<p>a<i>b</i>c").select("p")
+    first, second = p.iter_text(), p.iter_text()
+    del p
+    assert iter(first) is first
+    assert next(first) == "a"
+    assert list(second) == ["a", "b", "c"]
+    assert list(first) == ["b", "c"]
+    assert next(first, None) is None
+
+
 def test_malformed_end_tags_void_elements_and_self_closing_scopes() -> None:
     source = (
         "<main><a>start <em>inner</main>tail</em>"

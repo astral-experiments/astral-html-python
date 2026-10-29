@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::ops::Range;
 use std::sync::Arc;
 
 use pyo3::exceptions::{PyKeyError, PyValueError};
@@ -9,7 +10,7 @@ use pyo3::types::{IntoPyDict, PyAny, PyList, PyMappingProxy, PyString};
 
 mod selector;
 mod tree;
-use tree::{Kind, Tree};
+use tree::Tree;
 
 pyo3::create_exception!(
     astral_html,
@@ -44,6 +45,28 @@ struct Document {
 struct Element {
     tree: Arc<Tree>,
     index: usize,
+}
+
+#[pyclass(module = "astral_html._astral_html", name = "_TextIterator")]
+struct TextIterator {
+    tree: Option<Arc<Tree>>,
+    nodes: Range<usize>,
+}
+
+#[pymethods]
+impl TextIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__<'py>(&mut self, py: Python<'py>) -> Option<Bound<'py, PyString>> {
+        let tree = self.tree.as_ref()?;
+        if let Some(text) = tree.text_in(&mut self.nodes).next() {
+            return Some(PyString::new(py, text));
+        }
+        self.tree = None;
+        None
+    }
 }
 
 impl Element {
@@ -122,12 +145,7 @@ impl Element {
     #[getter]
     fn text(&self) -> Cow<'_, str> {
         let tree = &self.tree;
-        let mut segments = tree.nodes[tree.descendants(Some(self.index))]
-            .iter()
-            .filter_map(|node| match &node.kind {
-                Kind::Text(segment) => Some(tree.string(segment)),
-                _ => None,
-            });
+        let mut segments = tree.text_in(tree.descendants(Some(self.index)));
         let first = segments.next().unwrap_or("");
         let Some(second) = segments.next() else {
             return Cow::Borrowed(first);
@@ -135,6 +153,14 @@ impl Element {
         let mut text = [first, second].concat();
         text.extend(segments);
         Cow::Owned(text)
+    }
+
+    /// Yield descendant text fragments in source order, preserving whitespace.
+    fn iter_text(&self) -> TextIterator {
+        TextIterator {
+            tree: Some(self.tree.clone()),
+            nodes: self.tree.descendants(Some(self.index)),
+        }
     }
 
     /// The parent element, or None for a root of the retained tree.

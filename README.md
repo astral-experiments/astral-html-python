@@ -53,6 +53,10 @@ for link in doc.select("main a[href]"):
 print(links)  # [('/guide', 'Read the guide')]
 ```
 
+The tree follows nesting in the source. For example, in `<ul><li>A<li>B</ul>`
+the second `li` is a child of the first, so `select("ul > li")` returns one
+item with the text `"AB"`.
+
 [Parsing and CSS queries](https://github.com/astral-experiments/astral-html-python/blob/main/docs/parsing.md) ·
 [Development guide](https://github.com/astral-experiments/astral-html-python/blob/main/docs/development.md)
 

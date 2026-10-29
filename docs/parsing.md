@@ -57,6 +57,11 @@ assert link.text == "Read the guide"
 - `text` joins descendant text in source order without inserting spaces.
   The tokenizer normalizes newlines and decodes character references except
   in raw text such as `script`.
+- `iter_text()` yields those same text fragments one at a time, preserving
+  whitespace. Joining them with `""` gives `.text`. For
+  `<p>New<br>York</p>`, the fragments are `"New"` and `"York"`. For
+  `<p>NewYork<br></p>`, the only fragment is `"NewYork"`. Tags such as
+  `br` contribute no text of their own.
 
 CSS queries support attribute selectors, combinators, and pseudo-classes such
 as `:scope`, `:nth-child()`, `:is()`, `:not()`, and `:has()`. Invalid or
