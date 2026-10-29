@@ -15,7 +15,7 @@ use selectors::{Element, OpaqueElement};
 use crate::tree::Tree;
 mod attributes;
 mod limits;
-use limits::MatchBudget;
+use limits::{FilterCost, MatchBudget};
 
 // Servo recurses both across combinators and into selector functions. HTML's
 // nesting limit cannot protect shallow trees with long sibling selectors.
@@ -122,6 +122,10 @@ fn check_match_depth(
                 shape.has_relative = true;
                 for nested in list.iter() {
                     check_match_depth(&nested.selector, depth, shape)?;
+                    if nested.match_hint.is_descendant_direction() {
+                        shape.descendant_relatives += 1;
+                        shape.relative_filter.include(&nested.selector);
+                    }
                 }
             }
             _ => {}
@@ -135,6 +139,8 @@ struct SelectorShape {
     has_relative: bool,
     has_nth_of: bool,
     unmetered_components: usize,
+    descendant_relatives: usize,
+    relative_filter: FilterCost,
 }
 
 pub enum SelectError {
@@ -193,7 +199,14 @@ fn select_with_stack(
     };
     let offset = usize::from(tag.is_some_and(|(_, first)| first));
     let nodes = tree.descendants(root);
-    let budget = MatchBudget::new(nodes.len(), tree.string_bytes());
+    // Servo constructs a filter on the second distinct relative selector's
+    // lookup for an anchor. Hits for the first selector use its result cache.
+    let can_build_filter = alternatives
+        .iter()
+        .map(|(_, shape)| shape.descendant_relatives)
+        .sum::<usize>()
+        > 1;
+    let budget = MatchBudget::new(nodes.len(), tree.string_bytes(), can_build_filter);
     let mut caches = matching::SelectorCaches::default();
     let mut context = matching::MatchingContext::new(
         matching::MatchingMode::Normal,
@@ -368,7 +381,7 @@ impl ElementRef<'_> {
 impl Element for ElementRef<'_> {
     type Impl = Css;
     fn opaque(&self) -> OpaqueElement {
-        self.budget.record_identity(self.shape);
+        self.budget.record_identity(self);
         OpaqueElement::new(&self.tree.nodes[self.index])
     }
     fn parent_element(&self) -> Option<Self> {
@@ -400,10 +413,15 @@ impl Element for ElementRef<'_> {
             .tree
             .children(self.index)
             .inspect(|_| self.budget.visit(self.shape));
-        self.tree
+        let child = self
+            .tree
             .elements_in(children)
             .next()
-            .map(|(index, _)| Self { index, ..*self })
+            .map(|(index, _)| Self { index, ..*self });
+        if child.is_none() {
+            self.budget.saw_empty_children(self.index);
+        }
+        child
     }
     fn is_html_element_in_html_document(&self) -> bool {
         true
