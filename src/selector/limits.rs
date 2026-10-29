@@ -32,9 +32,7 @@ impl MatchBudget {
             work_left: Cell::new(nodes.saturating_mul(WORK_PER_NODE).max(MIN_WORK_BUDGET)),
             // Even a single node may need to scan most of the retained strings.
             scan_bytes_left: Cell::new(
-                string_bytes
-                    .saturating_mul(SCAN_PASSES)
-                    .max(MIN_SCAN_BYTES),
+                string_bytes.saturating_mul(SCAN_PASSES).max(MIN_SCAN_BYTES),
             ),
             visit_cost: Cell::new(1),
             relative_cache_uses: has_relative.then(Cell::default),
@@ -62,11 +60,7 @@ impl MatchBudget {
     pub(super) fn scan_bytes(&self, bytes: usize) {
         // Short comparisons are already covered by the per-visit work charge.
         if bytes > SHORT_SCAN {
-            let Some(remaining) = self
-                .scan_bytes_left
-                .get()
-                .checked_sub(bytes - SHORT_SCAN)
-            else {
+            let Some(remaining) = self.scan_bytes_left.get().checked_sub(bytes - SHORT_SCAN) else {
                 cancel("CSS selector exceeded the matching work limit");
             };
             self.scan_bytes_left.set(remaining);
