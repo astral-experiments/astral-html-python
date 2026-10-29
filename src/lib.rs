@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyAny, PyDict, PyList, PyString};
 
@@ -155,28 +155,29 @@ impl Element {
     }
 }
 
-/// Parse decoded HTML; when tags is supplied, retain only matching subtrees.
-#[pyfunction(signature = (html, *, tags=None))]
-fn parse(py: Python<'_>, html: &str, tags: Option<Bound<'_, PyAny>>) -> PyResult<Document> {
-    let tags: Option<HashSet<String>> = match tags {
-        Some(tags) => {
-            if tags.cast::<PyString>().is_ok() {
-                return Err(PyTypeError::new_err(
-                    "tags must be an iterable of tag names, not a string",
-                ));
-            }
-            let mut names = HashSet::new();
-            for tag in tags.try_iter()? {
-                let tag = tag?.extract::<String>()?;
-                if tag.is_empty() {
-                    return Err(PyValueError::new_err("tag names must not be empty"));
-                }
-                names.insert(tag.to_ascii_lowercase());
-            }
-            Some(names)
+fn retained_tag_names(value: &Bound<'_, PyAny>) -> PyResult<HashSet<String>> {
+    fn tag_name(value: &Bound<'_, PyAny>) -> PyResult<String> {
+        let name = value.extract::<&str>()?;
+        if name.is_empty() {
+            return Err(PyValueError::new_err("tag names must not be empty"));
         }
-        None => None,
-    };
+        Ok(name.to_ascii_lowercase())
+    }
+
+    if value.is_instance_of::<PyString>() {
+        return Ok(HashSet::from([tag_name(value)?]));
+    }
+    value.try_iter()?.map(|tag| tag_name(&tag?)).collect()
+}
+
+/// Parse decoded HTML, optionally retaining only subtrees rooted at the named tags.
+#[pyfunction(signature = (html, *, retain_subtrees=None))]
+fn parse(
+    py: Python<'_>,
+    html: &str,
+    retain_subtrees: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Document> {
+    let tags = retain_subtrees.map(retained_tag_names).transpose()?;
     let tree = py
         .detach(|| Tree::parse(html, tags.as_ref()))
         .map_err(PyValueError::new_err)?;

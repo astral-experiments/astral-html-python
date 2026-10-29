@@ -1,7 +1,9 @@
 from collections.abc import Iterable
 from typing import Never, final, overload
 
-def parse(html: str, *, tags: Iterable[str] | None = None) -> Document: ...
+def parse(
+    html: str, *, retain_subtrees: str | Iterable[str] | None = None
+) -> Document: ...
 
 @final
 class Document:

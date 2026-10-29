@@ -64,9 +64,9 @@ so `:is(a, :hover)` still matches `a` elements.
 
 ## Retaining selected subtrees
 
-The experimental `tags` argument takes an iterable of tag names, matched
-without regard to ASCII case. The parser reads the whole input and retains
-each matching element and its descendants. Queries use the resulting tree.
+The experimental `retain_subtrees` keyword accepts one tag name or an iterable
+of names. Matching ignores ASCII case. The parser reads the whole input and
+retains each matching element and its descendants. Queries use the resulting tree.
 For example, links that had different parents in the input can become
 adjacent roots and match the sibling selector `a + a`.
 
@@ -74,22 +74,22 @@ adjacent roots and match the sibling selector `a + a`.
 from astral_html import parse
 
 source = '<nav><a href="/">Home</a></nav><main><a><b>Draft</b></a></main>'
-links = parse(source, tags=["a"])
+links = parse(source, retain_subtrees="a")
 assert [a.text for a in links.select(":root")] == ["Home", "Draft"]
 assert [a.text for a in links.select("a + a")] == ["Draft"]
 assert links.select("nav a") == []
 assert [b.text for b in links.select("a > b")] == ["Draft"]
 ```
 
-For one tag, pass `tags=["a"]`. A bare string raises `TypeError`, and an
-empty iterable retains no elements. The benchmarks compare how much memory
-full and partial trees retain. [Retained memory](../benchmarks/README.md#retained-memory)
+Pass `retain_subtrees=["a", "img"]` for several tags. An empty iterable
+retains no elements. This keyword replaces the experimental `tags` keyword.
+The benchmarks compare how much memory full and partial trees retain. [Retained memory](../benchmarks/README.md#retained-memory)
 
 ## Resource limits
 
 - HTML input is limited to 128 MiB measured as UTF-8, four million retained
   element and text nodes, and 256 simultaneously open non-void elements. The
-  byte and nesting limits also apply when parsing with `tags`.
+  byte and nesting limits also apply when parsing with `retain_subtrees`.
 - CSS input is limited to 256 KiB measured as UTF-8, 32 nested blocks, and
   128 compounds along a matching path. Complex queries can also exceed a
   matching work or cache limit.

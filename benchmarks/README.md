@@ -98,7 +98,7 @@ selectors rely on ancestors dropped by partial parsing.
 
 These timings cover selecting `a` on a parsed page and reading each anchor’s
 `href` and descendant text. Both Astral modes use `doc.select("a")`.
-The partial tree was built with `parse(html, tags=["a"])`.
+The partial tree was built with `parse(html, retain_subtrees="a")`.
 
 | Parser | PyPI (µs) | GitHub (µs) | Wikipedia (µs) |
 | --- | ---: | ---: | ---: |

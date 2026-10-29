@@ -65,7 +65,7 @@ PARSERS = [
     ("Beautiful Soup", partial(BeautifulSoup, features="lxml"), soup_links),
     (
         "astral-html partial",
-        lambda raw: astral_html.parse(raw.decode("utf-8"), tags=["a"]),
+        lambda raw: astral_html.parse(raw.decode("utf-8"), retain_subtrees="a"),
         astral_links,
     ),
 ]
@@ -134,7 +134,9 @@ def rss_kib():
 
 
 def memory(source, mode):
-    parse = partial(astral_html.parse, tags=["a"] if mode == "partial" else None)
+    parse = partial(
+        astral_html.parse, retain_subtrees="a" if mode == "partial" else None
+    )
     parse(source)  # Exclude parser initialization and the input from the baseline.
     before = rss_kib()
     documents = [parse(source) for _ in range(64)]
