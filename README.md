@@ -47,7 +47,7 @@ doc = parse(html)
 
 links = []
 for link in doc.select("main a[href]"):
-    href = link.get("href")
+    href = link["href"]
     links.append((href, link.text))
 
 print(links)  # [('/guide', 'Read the guide')]
