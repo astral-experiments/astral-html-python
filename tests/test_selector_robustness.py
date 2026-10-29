@@ -111,6 +111,13 @@ def test_selector_alternatives_are_charged_individually() -> None:
     assert doc.select(f"{tags}, i") == doc.select("i")
 
 
+def test_unrelated_has_alternative_does_not_charge_nth_child_to_relative_cache() -> None:
+    doc = parse("<i></i>" * 9_000 + "<b></b>")
+    b = doc.select_one("b:nth-child(9001)")
+    assert b is not None
+    assert doc.select_one("b:nth-child(9001), x:has(*)") == b
+
+
 def test_repeated_tag_name_scans_on_a_shared_ancestor_are_bounded() -> None:
     tag = "x" * 8192
     doc = parse(f"<{tag}>" + "<i></i>" * 2000)

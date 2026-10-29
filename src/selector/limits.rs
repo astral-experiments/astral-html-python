@@ -5,6 +5,8 @@ use std::panic;
 
 use selectors::matching::SelectorCaches;
 
+use super::SelectorShape;
+
 // Cancellation must unwind Rust frames, including stacker's extra stack.
 #[cfg(panic = "abort")]
 compile_error!("astral-html selector limits require the Rust panic=unwind strategy");
@@ -22,11 +24,12 @@ pub(super) struct MatchBudget {
     work_left: Cell<usize>,
     scan_bytes_left: Cell<usize>,
     visit_cost: Cell<usize>,
-    relative_cache_uses: Option<Cell<usize>>,
+    track_relative: Cell<bool>,
+    relative_cache_uses: Cell<usize>,
 }
 
 impl MatchBudget {
-    pub(super) fn new(nodes: usize, string_bytes: usize, has_relative: bool) -> Self {
+    pub(super) fn new(nodes: usize, string_bytes: usize) -> Self {
         Self {
             // Budget linear scans and allow some complex queries on small trees.
             work_left: Cell::new(nodes.saturating_mul(WORK_PER_NODE).max(MIN_WORK_BUDGET)),
@@ -35,16 +38,18 @@ impl MatchBudget {
                 string_bytes.saturating_mul(SCAN_PASSES).max(MIN_SCAN_BYTES),
             ),
             visit_cost: Cell::new(1),
-            relative_cache_uses: has_relative.then(Cell::default),
+            track_relative: Cell::new(false),
+            relative_cache_uses: Cell::new(0),
         }
     }
 
     #[inline]
-    pub(super) fn start_selector(&self, components: usize) {
+    pub(super) fn start_selector(&self, shape: &SelectorShape) {
         // Servo can match many components without calling back into Element.
         // Charge for this alternative only; later alternatives may never run.
         self.visit_cost
-            .set(components.div_ceil(COMPONENTS_PER_WORK_UNIT).max(1));
+            .set(shape.components.div_ceil(COMPONENTS_PER_WORK_UNIT).max(1));
+        self.track_relative.set(shape.has_relative);
         self.visit();
     }
 
@@ -71,12 +76,10 @@ impl MatchBudget {
     pub(super) fn start_element(&self, caches: &mut SelectorCaches) {
         // Servo 0.41 can cache a 4 KiB Bloom filter per leaf for two :has()
         // alternatives. Clear only the relative caches between candidates.
-        if let Some(uses) = &self.relative_cache_uses
-            && uses.get() >= RELATIVE_CACHE_BATCH
-        {
+        if self.relative_cache_uses.get() >= RELATIVE_CACHE_BATCH {
             caches.relative_selector_filter_map = Default::default();
             caches.relative_selector = Default::default();
-            uses.set(0);
+            self.relative_cache_uses.set(0);
         }
     }
 
@@ -85,12 +88,12 @@ impl MatchBudget {
         self.visit();
         // Both relative caches call opaque(). A single match can fill them
         // before we can clear them in start_element.
-        if let Some(uses) = &self.relative_cache_uses {
-            let n = uses.get();
+        if self.track_relative.get() {
+            let n = self.relative_cache_uses.get();
             if n >= RELATIVE_CACHE_LIMIT {
                 cancel("CSS selector exceeded the relative-selector cache limit");
             }
-            uses.set(n + 1);
+            self.relative_cache_uses.set(n + 1);
         }
     }
 }

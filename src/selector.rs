@@ -162,12 +162,10 @@ fn select_with_stack(
     })?;
     let selectors = selectors.slice();
     let mut alternatives = Vec::with_capacity(selectors.len());
-    let mut has_relative = false;
     for selector in selectors {
         let mut shape = SelectorShape::default();
         check_match_depth(selector, 0, &mut shape).map_err(SelectError::ResourceLimit)?;
-        has_relative |= shape.has_relative;
-        alternatives.push((selector, shape.components));
+        alternatives.push((selector, shape));
     }
     // Only a literal tag in the rightmost compound is required of every match.
     // Selector lists and selectors without a literal tag use the full matcher for each node.
@@ -183,7 +181,7 @@ fn select_with_stack(
     };
     let offset = usize::from(tag.is_some_and(|(_, first)| first));
     let nodes = tree.descendants(root);
-    let budget = MatchBudget::new(nodes.len(), tree.string_bytes(), has_relative);
+    let budget = MatchBudget::new(nodes.len(), tree.string_bytes());
     let mut caches = matching::SelectorCaches::default();
     let mut context = matching::MatchingContext::new(
         matching::MatchingMode::Normal,
@@ -206,8 +204,8 @@ fn select_with_stack(
                 index,
                 budget: &budget,
             };
-            if alternatives.iter().any(|&(selector, components)| {
-                budget.start_selector(components);
+            if alternatives.iter().any(|(selector, shape)| {
+                budget.start_selector(shape);
                 matching::matches_complex_selector(
                     selector.iter_from(offset),
                     &element,
