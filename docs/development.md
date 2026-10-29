@@ -29,6 +29,6 @@ Run pytest with the environment's Python to test the installed wheel. The
 .venv/bin/python -I -m pytest --import-mode=importlib
 ```
 
-The package version comes from the Cargo manifest. CI also checks the
-benchmark outputs and runs a short timing sample.
+Set the package version in `pyproject.toml` and `Cargo.toml`. CI also checks
+the benchmark outputs and runs a short timing sample.
 [Cargo.toml](../Cargo.toml) · [CI workflow](../.github/workflows/ci.yml)
