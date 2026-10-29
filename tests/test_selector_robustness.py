@@ -109,6 +109,8 @@ def test_selector_alternatives_are_charged_individually() -> None:
     tags = ", ".join(f"x{i}" for i in range(33))
     assert doc.select(tags) == []
     assert doc.select(f"{tags}, i") == doc.select("i")
+    unused = ", ".join(f"x{i}" for i in range(1024))
+    assert doc.select(f"i, {unused}") == doc.select("i")
 
 
 def test_unrelated_has_does_not_charge_nth_child_to_relative_cache() -> None:
@@ -136,6 +138,28 @@ def test_selector_nesting_limit_without_parentheses(
     for suffix in ("", "/*(*/"):
         with pytest.raises(ResourceLimitError, match="nesting limit"):
             parse("").select(selector + suffix)
+
+
+@pytest.mark.parametrize("pseudo", ["is", "where"])
+@pytest.mark.parametrize(
+    "missing", ["tag", "#id", ".class", "[name]", "[name=value]", "[*|name]"]
+)
+def test_nested_lists_charge_leaf_checks_as_they_run(pseudo: str, missing: str) -> None:
+    doc = parse("<i></i>" * 4096)
+    alternatives = ",".join([missing] * 1024)
+    assert doc.select(f":{pseudo}(i,{alternatives})") == doc.select("i")
+    with pytest.raises(ResourceLimitError, match="matching work limit"):
+        doc.select(f":{pseudo}({alternatives})")
+
+
+def test_nth_of_type_bounds_sibling_name_scans() -> None:
+    name = "a" * 16_384
+    # Sibling names share a long prefix. :nth-of-type compares the candidates
+    # with earlier siblings even when the selector has no literal tag name.
+    siblings = [f"{name}{n:03}" for n in range(80)]
+    doc = parse("".join(f"<{tag}></{tag}>" for tag in siblings))
+    with pytest.raises(ResourceLimitError, match="matching work limit"):
+        doc.select(":nth-of-type(2)")
 
 
 def test_repeated_attribute_value_scans_are_bounded() -> None:
@@ -209,19 +233,42 @@ def test_relative_cache_limit_within_one_candidate() -> None:
         doc.select_one("i:has(.x, .y) ~ b")
 
 
+def test_nth_index_cache_rotation_preserves_matches() -> None:
+    doc = parse(("<p>" + "<i></i>" * 8 + "</p>") * 2048)
+    selector = ", ".join(["i:nth-child(0 of *)"] * 6 + ["i:nth-child(8 of *)"])
+    assert doc.select(selector) == doc.select("i:last-child")
+
+
 @pytest.mark.skipif(sys.platform != "linux", reason="uses Linux peak RSS units")
-def test_has_does_not_retain_a_bloom_filter_for_every_leaf() -> None:
-    # The regression used 65 MiB during matching. Measure after parsing.
+@pytest.mark.parametrize(
+    ("fragment", "count", "selector", "max_mib"),
+    [
+        # Unbounded relative Bloom filters used 65 MiB; unbounded nth indexes
+        # used 57 MiB. Short sibling groups avoid quadratic debug assertions.
+        ("<i></i>", 16_000, "i:has(.x, .y)", 24),
+        (
+            "<p>" + "<i></i>" * 4 + "</p>",
+            65_000,
+            ",".join(["i:nth-child(0 of *)"] * 6),
+            48,
+        ),
+    ],
+)
+def test_selector_cache_memory(
+    fragment: str, count: int, selector: str, max_mib: int
+) -> None:
     code = """
+import sys
 from resource import getrusage, RUSAGE_SELF
 from astral_html import parse
-doc = parse("<i></i>" * 16_000)
+doc = parse(sys.argv[1] * int(sys.argv[2]))
 before = getrusage(RUSAGE_SELF).ru_maxrss
-assert doc.select("i:has(.x, .y)") == []
+assert doc.select(sys.argv[3]) == []
 print(getrusage(RUSAGE_SELF).ru_maxrss - before)
 """
-    extra_kib = int(subprocess.check_output([sys.executable, "-c", code], timeout=20))
-    assert extra_kib < 24 * 1024
+    args = [sys.executable, "-c", code, fragment, str(count), selector]
+    extra_kib = int(subprocess.check_output(args, timeout=30))
+    assert extra_kib < max_mib * 1024
 
 
 def test_selector_input_limit() -> None:

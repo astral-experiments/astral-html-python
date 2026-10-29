@@ -28,7 +28,7 @@ fn equal_bytes(a: &[u8], b: &[u8], case: CaseSensitivity, scanned: &mut usize) -
 
 impl ElementRef<'_> {
     pub(super) fn attribute(&self, name: &str) -> Option<&str> {
-        self.budget.visit();
+        self.budget.visit(self.shape);
         let mut scanned = 0;
         let value = self.tree.attribute(self.index, |key| {
             scanned += 1;
@@ -42,7 +42,7 @@ impl ElementRef<'_> {
         self.budget.scan_bytes(scanned);
         value
     }
-    pub(super) fn value_equals(&self, actual: &[u8], needle: &[u8], case: CaseSensitivity) -> bool {
+    pub(super) fn bytes_equal(&self, actual: &[u8], needle: &[u8], case: CaseSensitivity) -> bool {
         if actual.len() <= SHORT_SCAN {
             return case.eq(actual, needle);
         }
@@ -134,6 +134,6 @@ impl ElementRef<'_> {
             DashMatch if n == bytes.len() || bytes[n] == b'-' => &bytes[..n],
             _ => return false,
         };
-        self.value_equals(compared, needle.as_bytes(), *case_sensitivity)
+        self.bytes_equal(compared, needle.as_bytes(), *case_sensitivity)
     }
 }
