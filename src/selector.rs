@@ -21,7 +21,8 @@ use limits::MatchBudget;
 // nesting limit cannot protect shallow trees with long sibling selectors.
 const MAX_MATCH_DEPTH: usize = 128;
 const MAX_BLOCK_DEPTH: u8 = 32;
-const MAX_SELECTOR_BYTES: usize = 256 * 1024;
+pub(crate) const MAX_SELECTOR_BYTES: usize = 256 * 1024;
+pub(crate) const SELECTOR_SIZE_ERROR: &str = "CSS selector exceeds the 256 KiB input limit";
 
 /// Work around Servo 0.41 accepting functional :host even with parse_host off.
 /// Rename the function so Servo rejects it at the right forgiving-list boundary.
@@ -151,9 +152,7 @@ fn select_with_stack(
     first: bool,
 ) -> Result<Vec<usize>, SelectError> {
     if css.len() > MAX_SELECTOR_BYTES {
-        return Err(SelectError::ResourceLimit(
-            "CSS selector exceeds the 256 KiB input limit".to_owned(),
-        ));
+        return Err(SelectError::ResourceLimit(SELECTOR_SIZE_ERROR.to_owned()));
     }
     let prepared = prepare_selector(css).map_err(SelectError::ResourceLimit)?;
     let mut parser = cssparser::Parser::new(&prepared);

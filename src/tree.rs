@@ -6,6 +6,8 @@ use std::ops::Range;
 
 use astral_html::{Limits, Reader, Token};
 
+pub(crate) const INPUT_SIZE_ERROR: &str = "HTML input exceeds the byte limit";
+
 pub struct Tree {
     pub nodes: Vec<Node>,
     attributes: Vec<(Range<u32>, Range<u32>)>,
@@ -56,7 +58,7 @@ impl Tree {
     pub fn parse(source: &str, tags: Option<&HashSet<String>>) -> Result<Self, &'static str> {
         let limits = Limits::default();
         if source.len() > limits.max_input_bytes {
-            return Err("HTML input exceeds the byte limit");
+            return Err(INPUT_SIZE_ERROR);
         }
         let max_nodes = limits.max_nodes.min(u32::MAX as usize);
         let single_tag = tags

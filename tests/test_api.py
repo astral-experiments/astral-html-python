@@ -1,3 +1,4 @@
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -34,6 +35,19 @@ def test_parse_and_traverse() -> None:
     assert link.get("missing") is None
     fallback = object()
     assert link.get("missing", fallback) is fallback
+
+
+def test_surrogate_attribute_name_is_missing() -> None:
+    (link,) = parse('<a href="/">').select("a")
+    key = b"\xff".decode(errors="surrogateescape")
+    fallback = object()
+    assert link.get(key, fallback) is link.attrs.get(key, fallback) is fallback
+    assert key not in link
+    with pytest.raises(TypeError):
+        _ = 42 in link  # ty: ignore[unsupported-operator]
+    with pytest.raises(KeyError) as missing:
+        _ = link[key]
+    assert missing.value.args == (key,)
 
 
 def test_lexical_scopes_and_text_modes() -> None:
@@ -200,12 +214,59 @@ def test_partial_parse_preserves_real_page_links(page: str, link_count: int) -> 
 
 def test_input_limits_include_discarded_content() -> None:
     source = "é" * (64 * 1024 * 1024 + 1)
+    size_before = sys.getsizeof(source)
     for tags in (None, ["a"]):
         parse("<div>" * 256 + "<br>", retain_subtrees=tags)
         with pytest.raises(ResourceLimitError, match="nesting limit"):
             parse("<div>" * 257, retain_subtrees=tags)
         with pytest.raises(ResourceLimitError, match="byte limit"):
             parse(source, retain_subtrees=tags)
+    assert sys.getsizeof(source) == size_before
+
+
+def test_selector_byte_limit_on_python_strings() -> None:
+    class MisleadingLength(str):
+        def __len__(self) -> int:
+            return 0
+
+        def isascii(self) -> bool:
+            return True
+
+        def __getitem__(self, key: object, /) -> str:
+            raise AssertionError("preflight must inspect the underlying string")
+
+    doc = parse("<main><p/></main>")
+    (main,) = doc.select("main")
+    limit = 256 * 1024
+    for query in (doc.select, doc.select_one, main.select, main.select_one):
+        # ASCII and multibyte selectors at exactly the byte limit still parse.
+        assert query(" " * (limit - 1) + "p")
+        for char in ("é", "€", "🐍"):
+            repeat, spaces = divmod(limit, len(char.encode()))
+            boundary = char * repeat + " " * spaces
+            assert not query(boundary)
+            rejected = MisleadingLength(boundary + "a")
+            size_before = sys.getsizeof(rejected)
+            with pytest.raises(ResourceLimitError, match="256 KiB input limit"):
+                query(rejected)
+            assert sys.getsizeof(rejected) == size_before
+        # A character count alone can also rule out the input immediately.
+        oversized = "é" * (limit + 1)
+        size_before = sys.getsizeof(oversized)
+        with pytest.raises(ResourceLimitError, match="256 KiB input limit"):
+            query(oversized)
+        assert sys.getsizeof(oversized) == size_before
+
+
+def test_unencodable_input_within_size_limit() -> None:
+    with pytest.raises(UnicodeEncodeError):
+        parse("x\udcff")
+    # Exercise preflight for a string whose code point count alone is ambiguous.
+    css = "x\udcff" + " " * (65 * 1024)
+    with pytest.raises(UnicodeEncodeError) as caught:
+        parse("").select(css)
+    assert caught.value.object is css
+    assert caught.value.start == 1
 
 
 def test_text_outside_elements_does_not_consume_the_node_limit() -> None:
