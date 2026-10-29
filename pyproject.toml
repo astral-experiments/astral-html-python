@@ -47,11 +47,8 @@ cache-keys = [
     { file = "Cargo.toml" },
     { file = "Cargo.lock" },
     { file = "src/**/*.rs" },
-    { file = "python/astral_html/*.py" },
-    { file = "python/astral_html/*.pyi" },
-    { file = "python/astral_html/py.typed" },
-    { file = "LICENSE-*" },
-    { file = "benchmarks/filtered-links*.png" },
+    { file = "LICENSE-MIT" },
+    { file = "LICENSE-APACHE" },
 ]
 
 [tool.pytest.ini_options]
