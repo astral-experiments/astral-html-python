@@ -10,7 +10,7 @@ use super::{CssString, ElementRef};
 
 /// Compare just the common prefix needed to find a mismatch. Record bytes in
 /// small blocks so an early difference in a long value is a cheap comparison.
-fn equal_bytes(a: &[u8], b: &[u8], case: CaseSensitivity, scanned: &mut usize) -> bool {
+pub(super) fn equal_bytes(a: &[u8], b: &[u8], case: CaseSensitivity, scanned: &mut usize) -> bool {
     if a.len() != b.len() {
         return false;
     }

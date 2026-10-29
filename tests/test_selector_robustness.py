@@ -231,6 +231,21 @@ def test_relative_cache_rotation_preserves_late_and_negated_matches() -> None:
     assert len(doc.select(f"i:not({query})")) == 2_000
 
 
+@pytest.mark.parametrize(
+    "compound", ["[x]" * 4096, "x" * 8192], ids=["wide", "long-name"]
+)
+def test_relative_filter_scans_on_empty_elements_are_bounded(compound: str) -> None:
+    doc = parse("<i></i>" * 2048)
+    with pytest.raises(ResourceLimitError, match="matching work limit"):
+        doc.select(f":has(.absent, :where({compound}))")
+    # The next-sibling match skips both descendant alternatives on every
+    # element except the last one.
+    assert doc.select(f":has(+ i, .absent, {compound})") == doc.select(
+        "i:not(:last-child)"
+    )
+    assert doc.select(f":has({compound})") == []
+
+
 def test_relative_cache_limit_within_one_candidate() -> None:
     doc = parse("<i></i>" * 8_192 + "<b></b>")
     with pytest.raises(ResourceLimitError, match="relative-selector cache limit"):
