@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "A Rust-backed HTML parser and CSS selector engine for Python"
 requires-python = ">=3.14"
 license = "MIT OR Apache-2.0"
-license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
+license-files = ["LICENSE-MIT", "LICENSE-APACHE", "THIRD-PARTY-NOTICES.txt"]
 classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.14",
@@ -47,6 +47,12 @@ cache-keys = [
     { file = "Cargo.toml" },
     { file = "Cargo.lock" },
     { file = "src/**/*.rs" },
+    { file = "python/astral_html/*.py" },
+    { file = "python/astral_html/*.pyi" },
+    { file = "python/astral_html/py.typed" },
+    { file = "LICENSE-*" },
+    { file = "THIRD-PARTY-NOTICES.txt" },
+    { file = "benchmarks/filtered-links*.png" },
 ]
 
 [tool.pytest.ini_options]
