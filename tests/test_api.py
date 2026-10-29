@@ -71,6 +71,22 @@ def test_iter_text_iterator_lifetime_and_exhaustion() -> None:
     assert next(first, None) is None
 
 
+@pytest.mark.parametrize("retain", [None, "p"])
+def test_iter_content_preserves_direct_text_and_children(retain: str | None) -> None:
+    (p,) = parse(
+        "<div>outside<p><br>A<i>B<b>C</b></i>\r\n&amp;<br></p>outside",
+        retain_subtrees=retain,
+    ).select("p")
+    first_break, italic, last_break = p.children
+    content = p.iter_content()
+    del p
+    assert iter(content) is content
+    assert list(content) == [first_break, "A", italic, "\n&", last_break]
+    assert next(content, None) is None
+    assert list(first_break.iter_content()) == []
+    assert list(italic.iter_content()) == ["B", italic.children[0]]
+
+
 def test_malformed_end_tags_void_elements_and_self_closing_scopes() -> None:
     source = (
         "<main><a>start <em>inner</main>tail</em>"

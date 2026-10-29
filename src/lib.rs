@@ -10,7 +10,7 @@ use pyo3::types::{IntoPyDict, PyAny, PyList, PyMappingProxy, PyString};
 
 mod selector;
 mod tree;
-use tree::Tree;
+use tree::{Kind, Tree};
 
 pyo3::create_exception!(
     astral_html,
@@ -47,29 +47,58 @@ struct Element {
     index: usize,
 }
 
-#[pyclass(module = "astral_html._astral_html", name = "_TextIterator")]
-struct TextIterator {
+enum Traversal {
+    DescendantText,
+    DirectContent,
+}
+
+#[pyclass(module = "astral_html._astral_html", name = "_ContentIterator")]
+struct ContentIterator {
     tree: Option<Arc<Tree>>,
     nodes: Range<usize>,
+    traversal: Traversal,
 }
 
 #[pymethods]
-impl TextIterator {
+impl ContentIterator {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 
-    fn __next__<'py>(&mut self, py: Python<'py>) -> Option<Bound<'py, PyString>> {
-        let tree = self.tree.as_ref()?;
-        if let Some(text) = tree.text_in(&mut self.nodes).next() {
-            return Some(PyString::new(py, text));
+    fn __next__<'py>(&mut self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let Some(tree) = &self.tree else {
+            return Ok(None);
+        };
+        match self.traversal {
+            Traversal::DescendantText => {
+                if let Some(text) = tree.text_in(&mut self.nodes).next() {
+                    return Ok(Some(PyString::new(py, text).into_any()));
+                }
+            }
+            Traversal::DirectContent => {
+                if let Some(i) = tree.next_child(&mut self.nodes) {
+                    let item = match &tree.nodes[i].kind {
+                        Kind::Text(span) => PyString::new(py, tree.string(span)).into_any(),
+                        Kind::Element { .. } => Bound::new(py, tree.element(i))?.into_any(),
+                    };
+                    return Ok(Some(item));
+                }
+            }
         }
         self.tree = None;
-        None
+        Ok(None)
     }
 }
 
 impl Element {
+    fn content_iterator(&self, traversal: Traversal) -> ContentIterator {
+        ContentIterator {
+            tree: Some(self.tree.clone()),
+            nodes: self.tree.descendants(Some(self.index)),
+            traversal,
+        }
+    }
+
     fn attribute(&self, name: &str) -> Option<&str> {
         self.tree
             .attribute(self.index, |key| key.eq_ignore_ascii_case(name.as_bytes()))
@@ -156,11 +185,13 @@ impl Element {
     }
 
     /// Yield descendant text fragments in source order, preserving whitespace.
-    fn iter_text(&self) -> TextIterator {
-        TextIterator {
-            tree: Some(self.tree.clone()),
-            nodes: self.tree.descendants(Some(self.index)),
-        }
+    fn iter_text(&self) -> ContentIterator {
+        self.content_iterator(Traversal::DescendantText)
+    }
+
+    /// Yield direct text fragments and child elements in source order.
+    fn iter_content(&self) -> ContentIterator {
+        self.content_iterator(Traversal::DirectContent)
     }
 
     /// The parent element, or None for a root of the retained tree.

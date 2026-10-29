@@ -62,6 +62,22 @@ assert link.text == "Read the guide"
   `<p>New<br>York</p>`, the fragments are `"New"` and `"York"`. For
   `<p>NewYork<br></p>`, the only fragment is `"NewYork"`. Tags such as
   `br` contribute no text of their own.
+- `iter_content()` yields the element’s direct text fragments and child elements
+  in source order. Use it when the position of a tag matters. For example, to
+  turn line breaks into newlines:
+
+```python
+(p,) = parse("<p><br>A<i>B</i><br></p>").select("p")
+parts = []
+for child in p.iter_content():
+    if isinstance(child, str):
+        parts.append(child)
+    elif child.tag == "br":
+        parts.append("\n")
+    else:
+        parts.append(child.text)
+assert "".join(parts) == "\nAB\n"
+```
 
 CSS queries support attribute selectors, combinators, and pseudo-classes such
 as `:scope`, `:nth-child()`, `:is()`, `:not()`, and `:has()`. Invalid or
