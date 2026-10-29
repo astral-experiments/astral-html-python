@@ -1,15 +1,15 @@
 {
   "workload": "parse + filtered links",
   "provenance": {
-    "measured_on": "2026-10-27",
+    "measured_on": "2026-10-29",
     "source_table": "README.md#time-per-operation",
-    "parser_revision": "da95d372ee9e6053d6b51e7d92422fd154d64532",
-    "runner_revision": "864be5964185b5d77d5b3b8768c8952a49c9c0b0",
-    "machine": "Linux x86-64 AMD EPYC Milan VM, one pinned logical CPU, glibc 2.39",
-    "python": "CPython 3.14.8",
-    "build": "Release wheel built from the source distribution with Rust 1.99.0 and maturin 1.15.0",
+    "parser_revision": "98a6a38dcc5e3f85e77a11139e38927d511430a4",
+    "runner_revision": "98a6a38dcc5e3f85e77a11139e38927d511430a4",
+    "machine": "Ubuntu 24.04.5 LTS x86_64, AMD EPYC 7763 64-Core Processor, pinned to logical CPU 0, glibc 2.39",
+    "python": "CPython 3.14.9",
+    "build": "Release wheel built from the source distribution with rustc 1.99.0 (b940084d7 2026-09-28) and maturin (1.15.0)",
     "packages": {
-      "astral-html-python": "0.1.0",
+      "astral-html-python": "0.0.1",
       "selectolax": "1.0.0",
       "lxml": "6.1.3",
       "cssselect": "1.5.0",
@@ -18,7 +18,8 @@
     "timed_operation": "Parse in-memory UTF-8 response bytes, select links with the page-specific CSS selector, and build an ordered list of (href, descendant text) pairs. Beautiful Soup uses its lxml backend.",
     "statistic": "Arithmetic mean and sample standard error across 12 fresh worker processes per fixture, in microseconds per operation.",
     "batch": "Calibrate from eight iterations to a 12 ms target, then time another batch of the calibrated size. Cyclic GC stays enabled during both batches.",
-    "reproduce": "taskset -c \"$cpu\" .venv/bin/python -I benchmarks/run.py --samples 12 --min-sample-ms 12"
+    "reproduce": "taskset -c \"$cpu\" .venv/bin/python -I benchmarks/run.py --samples 12 --min-sample-ms 12",
+    "measurement_run": "https://github.com/astral-experiments/astral-html-python/actions/runs/40938603187"
   },
   "fixtures": {
     "pypi": {"file": "fixtures/iniconfig.html", "bytes": 6144, "selector": "body > a[data-requires-python]", "matches": 8},
@@ -26,17 +27,17 @@
     "wikipedia": {"file": "fixtures/wiki-42.html", "bytes": 222328, "selector": "#mw-content-text > p a[href^=\"/wiki/\"]", "matches": 15}
   },
   "measurements": [
-    {"fixture": "pypi", "parser": "astral-html", "mean_us": 13.3, "stderr_us": 0.2},
-    {"fixture": "pypi", "parser": "selectolax (Lexbor)", "mean_us": 81.3, "stderr_us": 0.8},
-    {"fixture": "pypi", "parser": "lxml", "mean_us": 162, "stderr_us": 2},
-    {"fixture": "pypi", "parser": "Beautiful Soup", "mean_us": 943, "stderr_us": 20},
-    {"fixture": "github", "parser": "astral-html", "mean_us": 268, "stderr_us": 20},
-    {"fixture": "github", "parser": "selectolax (Lexbor)", "mean_us": 391, "stderr_us": 1},
-    {"fixture": "github", "parser": "lxml", "mean_us": 1180, "stderr_us": 2},
-    {"fixture": "github", "parser": "Beautiful Soup", "mean_us": 14100, "stderr_us": 80},
-    {"fixture": "wikipedia", "parser": "astral-html", "mean_us": 1510, "stderr_us": 9},
-    {"fixture": "wikipedia", "parser": "selectolax (Lexbor)", "mean_us": 2160, "stderr_us": 30},
-    {"fixture": "wikipedia", "parser": "lxml", "mean_us": 5930, "stderr_us": 60},
-    {"fixture": "wikipedia", "parser": "Beautiful Soup", "mean_us": 110000, "stderr_us": 1000}
+    {"fixture": "pypi", "parser": "astral-html", "mean_us": 13.2, "stderr_us": 0.07},
+    {"fixture": "pypi", "parser": "selectolax (Lexbor)", "mean_us": 37.8, "stderr_us": 0.1},
+    {"fixture": "pypi", "parser": "lxml", "mean_us": 168.0, "stderr_us": 0.8},
+    {"fixture": "pypi", "parser": "Beautiful Soup", "mean_us": 1150.0, "stderr_us": 6.0},
+    {"fixture": "github", "parser": "astral-html", "mean_us": 235.0, "stderr_us": 2.0},
+    {"fixture": "github", "parser": "selectolax (Lexbor)", "mean_us": 375.0, "stderr_us": 0.9},
+    {"fixture": "github", "parser": "lxml", "mean_us": 1150.0, "stderr_us": 9.0},
+    {"fixture": "github", "parser": "Beautiful Soup", "mean_us": 18400.0, "stderr_us": 70.0},
+    {"fixture": "wikipedia", "parser": "astral-html", "mean_us": 1470.0, "stderr_us": 4.0},
+    {"fixture": "wikipedia", "parser": "selectolax (Lexbor)", "mean_us": 2050.0, "stderr_us": 5.0},
+    {"fixture": "wikipedia", "parser": "lxml", "mean_us": 5450.0, "stderr_us": 60.0},
+    {"fixture": "wikipedia", "parser": "Beautiful Soup", "mean_us": 137000.0, "stderr_us": 500.0}
   ]
 }

@@ -10,6 +10,9 @@ The three snapshots below exercise page-specific selectors. A separate
 benchmark compares link extraction on 1,867 distinct HTML bodies across seven page
 types. [Large-corpus benchmark](wcxb.md)
 
+We also compared native and stable-ABI wheels on 140 pages using CPython 3.14
+and 3.15. [Wheel ABI comparison](https://github.com/astral-experiments/astral-html-python/blob/d52265197b7bcc11f43afcab280e5e5306d20c61/results/wheel-abi/wheel-abi.md)
+
 | Snapshot | HTML bytes | All `a` | All `a[href]` | Filtered links | Filtered CSS selector |
 | --- | ---: | ---: | ---: | ---: | --- |
 | PyPI package index | 6,144 | 16 | 16 | 8 | `body > a[data-requires-python]` |
@@ -62,27 +65,29 @@ Parsing and full scrapes create a new tree each iteration. Automatic collection
 can reclaim earlier trees during timing. Any cleanup after the measured batch
 is outside the timer. The last column reuses one parsed document.
 
-We measured version 0.1.0 on a Linux x86-64 AMD EPYC Milan VM with glibc
-2.39 and CPython 3.14.8. We built the release wheel with Rust 1.99.0 and
-maturin 1.15.0. Other libraries were selectolax 1.0.0 (Lexbor), lxml 6.1.3
+We measured astral-html-python 0.0.1 on a GitHub-hosted x86_64 runner with
+Ubuntu 24.04.5 LTS and an AMD EPYC 7763 64-Core Processor. We pinned the
+workers to logical CPU 0. We built the release wheel from the source
+distribution with Rust 1.99.0 and maturin 1.15.0. The run used CPython 3.14.9
+and glibc 2.39. The other libraries were selectolax 1.0.0 (Lexbor), lxml 6.1.3
 with cssselect 1.5.0, and Beautiful Soup 4.15.0 with its lxml backend.
-[Parser revision `da95d37`](https://github.com/astral-experiments/astral-html-python/tree/da95d372ee9e6053d6b51e7d92422fd154d64532) ·
-[Runner at `864be59`](https://github.com/astral-experiments/astral-html-python/blob/864be5964185b5d77d5b3b8768c8952a49c9c0b0/benchmarks/run.py)
+[Parser and runner revision `98a6a38`](https://github.com/astral-experiments/astral-html-python/tree/98a6a38dcc5e3f85e77a11139e38927d511430a4) ·
+[Measurement run](https://github.com/astral-experiments/astral-html-python/actions/runs/40938603187)
 
 | Page | Parser | Parse | Parse + all links | Parse + filtered links | Filtered on existing tree |
 | --- | --- | ---: | ---: | ---: | ---: |
-| PyPI | astral-html | 8.51 ± 0.05 | 14.8 ± 0.08 | 13.3 ± 0.2 | 3.93 ± 0.02 |
-| PyPI | selectolax (Lexbor) | 55.9 ± 1 | 85.4 ± 0.7 | 81.3 ± 0.8 | 8.24 ± 0.05 |
-| PyPI | lxml | 56.1 ± 0.6 | 167 ± 3 | 162 ± 2 | 80.6 ± 2 |
-| PyPI | Beautiful Soup | 768 ± 20 | 909 ± 7 | 943 ± 20 | 117 ± 0.9 |
-| GitHub | astral-html | 240 ± 20 | 258 ± 1 | 268 ± 20 | 20.7 ± 0.08 |
-| GitHub | selectolax (Lexbor) | 345 ± 4 | 465 ± 20 | 391 ± 1 | 27.8 ± 1 |
-| GitHub | lxml | 955 ± 8 | 1,330 ± 6 | 1,180 ± 2 | 169 ± 5 |
-| GitHub | Beautiful Soup | 12,000 ± 80 | 13,300 ± 90 | 14,100 ± 80 | 1,870 ± 30 |
-| Wikipedia | astral-html | 1,140 ± 20 | 1,610 ± 5 | 1,510 ± 9 | 361 ± 4 |
-| Wikipedia | selectolax (Lexbor) | 1,890 ± 20 | 2,910 ± 50 | 2,160 ± 30 | 214 ± 2 |
-| Wikipedia | lxml | 4,450 ± 10 | 8,780 ± 40 | 5,930 ± 60 | 1,310 ± 7 |
-| Wikipedia | Beautiful Soup | 81,900 ± 400 | 90,300 ± 300 | 110,000 ± 1,000 | 26,900 ± 300 |
+| PyPI | astral-html | 9.16 ± 0.8 | 14.8 ± 0.09 | 13.2 ± 0.07 | 4.28 ± 0.03 |
+| PyPI | selectolax (Lexbor) | 23.3 ± 0.2 | 43.1 ± 0.2 | 37.8 ± 0.1 | 9.78 ± 0.3 |
+| PyPI | lxml | 54.6 ± 0.3 | 177 ± 2 | 168 ± 0.8 | 91.6 ± 0.3 |
+| PyPI | Beautiful Soup | 949 ± 3 | 1,120 ± 4 | 1,150 ± 6 | 148 ± 0.7 |
+| GitHub | astral-html | 207 ± 2 | 260 ± 10 | 235 ± 2 | 22.3 ± 0.1 |
+| GitHub | selectolax (Lexbor) | 331 ± 0.8 | 450 ± 4 | 375 ± 0.9 | 27.6 ± 0.2 |
+| GitHub | lxml | 895 ± 2 | 1,340 ± 8 | 1,150 ± 9 | 178 ± 0.5 |
+| GitHub | Beautiful Soup | 16,500 ± 400 | 17,400 ± 60 | 18,400 ± 70 | 2,170 ± 10 |
+| Wikipedia | astral-html | 1,090 ± 4 | 1,570 ± 3 | 1,470 ± 4 | 394 ± 10 |
+| Wikipedia | selectolax (Lexbor) | 1,810 ± 10 | 3,020 ± 8 | 2,050 ± 5 | 215 ± 1 |
+| Wikipedia | lxml | 4,230 ± 10 | 9,170 ± 20 | 5,450 ± 60 | 1,110 ± 2 |
+| Wikipedia | Beautiful Soup | 104,000 ± 300 | 115,000 ± 600 | 137,000 ± 500 | 32,500 ± 100 |
 
 The project README plots the **Parse + filtered links** column. Each page has
 its own zero-based time axis. Bars show the mean in microseconds and whiskers
@@ -90,8 +95,8 @@ span one standard error on either side. To redraw the chart from the
 [recorded means and standard errors](filtered-links.json), run
 `uv run --script benchmarks/plot.py` from the repository root.
 
-Retaining only `a` subtrees and extracting all links took 14.5 ± 0.2 µs on
-PyPI, 233 ± 1 µs on GitHub, and 1,520 ± 20 µs on Wikipedia. The filtered
+Retaining only `a` subtrees and extracting all links took 14.1 ± 0.06 µs on
+PyPI, 222 ± 2 µs on GitHub, and 1,460 ± 5 µs on Wikipedia. The filtered
 selectors rely on ancestors dropped by partial parsing.
 
 ## All anchors on an existing tree
@@ -102,18 +107,15 @@ The partial tree was built with `parse(html, retain_subtrees="a")`.
 
 | Parser | PyPI (µs) | GitHub (µs) | Wikipedia (µs) |
 | --- | ---: | ---: | ---: |
-| astral-html | 2.11 ± 0.08 | 11.7 ± 0.5 | 162 ± 4 |
-| astral-html, link subtrees | 2.13 ± 0.08 | 10.9 ± 0.4 | 159 ± 8 |
-| selectolax (Lexbor) | 5.15 ± 0.2 | 28.6 ± 0.9 | 362 ± 10 |
-| lxml | 21.1 ± 0.9 | 112 ± 6 | 1,470 ± 20 |
-| Beautiful Soup | 39.3 ± 2 | 382 ± 10 | 3,270 ± 200 |
+| astral-html | 5.45 ± 0.04 | 28.7 ± 0.08 | 445 ± 2 |
+| astral-html, link subtrees | 5.45 ± 0.06 | 26.7 ± 0.09 | 429 ± 2 |
+| selectolax (Lexbor) | 14.4 ± 0.08 | 87.8 ± 0.4 | 1,180 ± 3 |
+| lxml | 66 ± 0.3 | 333 ± 1 | 4,680 ± 8 |
+| Beautiful Soup | 113 ± 0.4 | 1,130 ± 3 | 9,520 ± 30 |
 
-Values are mean ± one standard error across 12 fresh processes per page.
-This run used a 0.0.1 release wheel built from the source distribution on
-macOS arm64 with CPython 3.14.8, Rust 1.99.0, and the locked benchmark
-dependencies. To reproduce, run
-`.venv/bin/python -I benchmarks/run.py --samples 12 --min-sample-ms 12`
-and read the `all anchors, existing tree` rows.
+Values are means ± one standard error from the same 12 worker processes per
+page as the full-scrape timings. Look for the `all anchors, existing tree`
+rows in the runner output.
 
 ## Retained memory
 
@@ -125,9 +127,9 @@ each RSS reading. Full and partial runs alternate order.
 
 | Page | Full tree | Link subtrees |
 | --- | ---: | ---: |
-| PyPI | 15.1 ± 0.01 | 9.79 ± 0.01 |
-| GitHub | 134 ± 0 | 39.6 ± 0 |
-| Wikipedia | 724 ± 0 | 295 ± 0 |
+| PyPI | 14.1 ± 0 | 8.75 ± 0 |
+| GitHub | 133 ± 0.009 | 38.9 ± 0 |
+| Wikipedia | 723 ± 0 | 295 ± 0 |
 
 A zero standard error means all seven readings agreed at the OS reporting
 resolution. The absolute RSS values depend on the allocator and process history.
