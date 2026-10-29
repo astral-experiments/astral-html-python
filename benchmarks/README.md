@@ -10,11 +10,11 @@ The three snapshots below exercise page-specific selectors. A separate
 benchmark compares link extraction on 1,867 distinct HTML bodies across seven page
 types. [Large-corpus benchmark](wcxb.md)
 
-| Snapshot | HTML bytes | All `a[href]` | Filtered links | Filtered CSS selector |
-| --- | ---: | ---: | ---: | --- |
-| PyPI package index | 6,144 | 16 | 8 | `body > a[data-requires-python]` |
-| GitHub file listing | 45,233 | 99 | 7 | `table.files tr > td.content a[href]` |
-| Wikipedia article | 222,328 | 1,603 | 15 | `#mw-content-text > p a[href^="/wiki/"]` |
+| Snapshot | HTML bytes | All `a` | All `a[href]` | Filtered links | Filtered CSS selector |
+| --- | ---: | ---: | ---: | ---: | --- |
+| PyPI package index | 6,144 | 16 | 16 | 8 | `body > a[data-requires-python]` |
+| GitHub file listing | 45,233 | 99 | 99 | 7 | `table.files tr > td.content a[href]` |
+| Wikipedia article | 222,328 | 1,604 | 1,603 | 15 | `#mw-content-text > p a[href^="/wiki/"]` |
 
 Before timing, the runner checks the counts and compares each extraction
 against Lexbor's output on the decoded UTF-8 text. The pairs must match in
@@ -22,9 +22,11 @@ order and preserve whitespace, non-ASCII characters, and duplicates. Parsers
 can produce different trees on other pages, particularly when the HTML is
 malformed.
 
-The existing-tree workload parses once, then repeats selection and extraction
-on that tree with the same filtered CSS string. Each library handles selector
-compilation and caching through its public API. [Benchmark runner](run.py)
+The existing-tree workloads parse once, then repeat selection and extraction
+with either the bare `a` selector or the page-specific selector. Both return
+ordered `(href, text)` pairs. The Wikipedia page includes one anchor without an
+`href`, which contributes `None` in the bare-tag workload. Each library handles
+selector compilation and caching through its public API. [Benchmark runner](run.py)
 
 ## Reproduce
 
@@ -91,6 +93,27 @@ span one standard error on either side. To redraw the chart from the
 Retaining only `a` subtrees and extracting all links took 14.5 ± 0.2 µs on
 PyPI, 233 ± 1 µs on GitHub, and 1,520 ± 20 µs on Wikipedia. The filtered
 selectors rely on ancestors dropped by partial parsing.
+
+## All anchors on an existing tree
+
+These timings cover selecting `a` on a parsed page and reading each anchor’s
+`href` and descendant text. Both Astral modes use `doc.select("a")`.
+The partial tree was built with `parse(html, tags=["a"])`.
+
+| Parser | PyPI (µs) | GitHub (µs) | Wikipedia (µs) |
+| --- | ---: | ---: | ---: |
+| astral-html | 2.11 ± 0.08 | 11.7 ± 0.5 | 162 ± 4 |
+| astral-html, link subtrees | 2.13 ± 0.08 | 10.9 ± 0.4 | 159 ± 8 |
+| selectolax (Lexbor) | 5.15 ± 0.2 | 28.6 ± 0.9 | 362 ± 10 |
+| lxml | 21.1 ± 0.9 | 112 ± 6 | 1,470 ± 20 |
+| Beautiful Soup | 39.3 ± 2 | 382 ± 10 | 3,270 ± 200 |
+
+Values are mean ± one standard error across 12 fresh processes per page.
+This run used a 0.0.1 release wheel built from the source distribution on
+macOS arm64 with CPython 3.14.8, Rust 1.99.0, and the locked benchmark
+dependencies. To reproduce, run
+`.venv/bin/python -I benchmarks/run.py --samples 12 --min-sample-ms 12`
+and read the `all anchors, existing tree` rows.
 
 ## Retained memory
 

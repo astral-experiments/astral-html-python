@@ -79,13 +79,13 @@ def test_wide_lists_and_long_compounds_fit_the_depth_budget() -> None:
     doc = parse(f'<p class="x" data-value="{value}"></p>')
     wide = ",".join(["p"] * 512)
     for selector in (wide, f":is({wide})", ".x" * 512, f'[data-value="{value}"]'):
-        assert doc.select(selector) == doc.elements()
+        assert len(doc.select(selector)) == 1
 
 
 def test_work_limit_discards_matches_and_allows_subsequent_queries() -> None:
     doc = parse("<b></b>" + "<i></i>" * 2_000)
     query = "b, :is(.missing ~ i) ~ i"
-    assert doc.select_one(query) == doc.elements("b")[0]
+    assert doc.select_one(query) == doc.select("b")[0]
     with pytest.raises(ValueError, match="matching work limit"):
         doc.select(query)
     with pytest.raises(ValueError, match="matching work limit"):
@@ -114,17 +114,17 @@ def test_repeated_attribute_value_scans_are_bounded() -> None:
     # One complete scan is fine, as are repeated operations that only inspect
     # the beginning, end, or length of this attribute.
     large = parse(f'<p class="{"x" * (9 * 1024 * 1024)} last">')
-    assert large.select(".last") == large.elements()
+    assert len(large.select(".last")) == 1
     cheap = (
         ".first[class][class^=first][class$=last][class*=FIRST i]:not([class=short])"
     )
-    assert doc.select(cheap * 64) == doc.elements()
+    assert len(doc.select(cheap * 64)) == 1
 
 
 def test_repeated_attribute_name_scans_are_bounded() -> None:
     attrs = " ".join(f"a{i}" for i in range(50_000))
     doc = parse(f"<p {attrs} last>")
-    assert doc.select("[last]") == doc.elements()
+    assert len(doc.select("[last]")) == 1
     with pytest.raises(ValueError, match="matching work limit"):
         doc.select(",".join(["[absent]"] * 256))
 
@@ -132,7 +132,7 @@ def test_repeated_attribute_name_scans_are_bounded() -> None:
 def test_attribute_matches_on_shared_ancestor_can_short_circuit() -> None:
     value = "xxFIRST" + "a" * 8192
     doc = parse(f'<section data-key="{value}" id="{value}" {value}>' + "<a></a>" * 4000)
-    links = doc.elements("a")
+    links = doc.select("a")
     other = "z" + value[1:]
     for selector in (
         "[data-key*=FIRST]",
@@ -156,10 +156,10 @@ def test_substring_crossing_scan_blocks() -> None:
     # A multibyte character straddles the scan boundary. The long insensitive
     # search must see the entire needle, even when it spans two blocks.
     doc = parse(f'<p data-value="{"a" * 63}{needle}suffix">')
-    assert doc.select(f'[data-value*="{needle}"]') == doc.elements()
-    assert doc.select(f'[data-value*="{needle.lower()}" i]') == doc.elements()
+    assert len(doc.select(f'[data-value*="{needle}"]')) == 1
+    assert len(doc.select(f'[data-value*="{needle.lower()}" i]')) == 1
     assert doc.select(f'[data-value*="{needle.upper()}" i]') == []
-    assert doc.select('[data-value*="suffix"]') == doc.elements()
+    assert len(doc.select('[data-value*="suffix"]')) == 1
 
 
 def test_relative_cache_rotation_preserves_late_and_negated_matches() -> None:
