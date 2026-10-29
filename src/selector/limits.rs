@@ -71,9 +71,7 @@ impl MatchBudget {
             work_left: Cell::new(nodes.saturating_mul(WORK_PER_NODE).max(MIN_WORK_BUDGET)),
             // Even a single node may need to scan most of the retained strings.
             scan_bytes_left: Cell::new(
-                string_bytes
-                    .saturating_mul(SCAN_PASSES)
-                    .max(MIN_SCAN_BYTES),
+                string_bytes.saturating_mul(SCAN_PASSES).max(MIN_SCAN_BYTES),
             ),
             relative_cache: CacheBudget::new(RELATIVE_CACHE_BATCH, RELATIVE_CACHE_LIMIT),
             nth_cache: CacheBudget::new(nth_batch, nth_batch.saturating_mul(2)),
