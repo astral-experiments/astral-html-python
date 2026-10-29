@@ -23,6 +23,7 @@ jobs:
       - uses: &rust-toolchain dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
         with:
           toolchain: '1.97.0'
+      # Build abi3 once so both interpreters exercise the same binary.
       - name: Build the source distribution and stable ABI wheel
         run: |
           dist="$RUNNER_TEMP/dist"
@@ -67,6 +68,8 @@ jobs:
           uv build "$RUNNER_TEMP"/dist/*.tar.gz --wheel --no-sources
           --out-dir "$RUNNER_TEMP/dist" --python .venv/bin/python
           --config-setting 'build-args=--compatibility pypi --auditwheel check'
+      # Both wheels have the same version. Force each install and keep uv from
+      # syncing the editable project back into the test environment.
       - name: Test the native and stable ABI wheels
         env:
           PYTHON_VERSION: ${{ matrix.python }}

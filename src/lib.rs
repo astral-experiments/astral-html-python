@@ -41,6 +41,8 @@ struct Document {
 }
 
 /// A handle to a node that keeps its parsed tree alive.
+// Give __getitem__ only a mapping slot. Otherwise Python tries to iterate an
+// Element with integer indices even though attribute lookup requires strings.
 #[pyclass(module = "astral_html", frozen, mapping)]
 struct Element {
     tree: Arc<Tree>,
@@ -85,6 +87,7 @@ impl ContentIterator {
                 }
             }
         }
+        // An exhausted iterator can stay alive without retaining the document.
         self.tree = None;
         Ok(None)
     }
@@ -200,6 +203,8 @@ impl Element {
         let Kind::Element { name, .. } = &self.tree.nodes[self.index].kind else {
             unreachable!("expected an element");
         };
+        // The span points into a UTF-8 string. Slicing it directly avoids
+        // revalidating the tag's bytes each time Python reads the property.
         self.tree.string(name)
     }
 
@@ -241,6 +246,8 @@ impl Element {
         let tree = &self.tree;
         let mut segments = tree.text_in(tree.descendants(Some(self.index)));
         let first = segments.next().unwrap_or("");
+        // Even nested markup can contain just one text span. Only allocate a
+        // Rust string when there are multiple spans to join.
         let Some(second) = segments.next() else {
             return Cow::Borrowed(first);
         };
@@ -298,6 +305,8 @@ impl Element {
         Arc::ptr_eq(&self.tree, &other.tree) && self.index == other.index
     }
 
+    // With a typed __ne__, PyO3 returns NotImplemented for unrelated types
+    // so Python can try the other operand's inequality comparison.
     fn __ne__(&self, other: &Self) -> bool {
         !self.__eq__(other)
     }
@@ -346,6 +355,8 @@ fn parse(
     })
 }
 
+// Importing the module requests the GIL by default on free-threaded CPython.
+// Parsing and selector matching detach while they work on Rust data.
 #[pymodule(gil_used = true)]
 fn _astral_html(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add(

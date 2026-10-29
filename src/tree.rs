@@ -17,6 +17,8 @@ pub struct Tree {
 pub struct Node {
     pub kind: Kind,
     pub parent: Option<NodeId>,
+    // Subtrees occupy consecutive nodes. This exclusive end lets a child
+    // iterator skip the entire subtree when advancing to the next sibling.
     pub end: u32,
     pub prev_sibling: Option<NodeId>,
     pub next_sibling: Option<NodeId>,
@@ -69,7 +71,8 @@ impl Tree {
             attributes: Vec::new(),
             strings: String::new(),
         };
-        // Retained strings share one buffer. The input limit bounds even decoded offsets.
+        // Copy only retained strings so a small subtree doesn't keep the whole input alive.
+        // The input limit bounds even decoded offsets.
         let mut store = |value: &str| {
             let start = tree.strings.len() as u32;
             tree.strings.push_str(value);
@@ -79,7 +82,7 @@ impl Tree {
         // Like astral_html::Document, index a deep stack only when an end tag
         // mismatches the top. Repeated unmatched tags then need one lookup each.
         let mut open_names: Option<HashMap<Cow<'_, str>, usize>> = None;
-        // Open elements track their last retained child; roots share one list.
+        // Roots are siblings in the retained tree even when their discarded parents differ.
         let mut last_root = None;
         for token in Reader::new(source) {
             let parent = stack.last().and_then(|entry| entry.retained);
@@ -89,6 +92,7 @@ impl Tree {
                     if !void && stack.len() >= limits.max_depth {
                         return Err("HTML document exceeds the nesting limit");
                     }
+                    // Selecting a subtree root keeps all its descendants, regardless of tag.
                     let keep = parent.is_some()
                         || match single_tag {
                             Some(name) => *name == tag.name,
@@ -127,6 +131,8 @@ impl Tree {
                     } else {
                         None
                     };
+                    // Non-void tags stay open even with a trailing slash. Track discarded
+                    // ancestors too, since their end tags can close retained descendants.
                     if !void {
                         let previous = open_names
                             .as_mut()

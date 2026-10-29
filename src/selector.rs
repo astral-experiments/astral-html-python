@@ -179,6 +179,8 @@ fn select_with_stack(
     let selectors = SelectorList::parse(&Css, &mut parser, ParseRelative::No).map_err(|error| {
         SelectError::InvalidSelector(format!("invalid CSS selector {css:?}: {error:?}"))
     })?;
+    // Matching stops at the first successful alternative for each candidate.
+    // Charge the query only for alternatives the matcher reaches.
     let mut alternatives = Vec::with_capacity(selectors.slice().len());
     for selector in selectors.slice() {
         let mut shape = SelectorShape::default();
@@ -292,6 +294,8 @@ struct CssName {
 }
 impl From<&str> for CssName {
     fn from(value: &str) -> Self {
+        // Compute FNV-1a once at parse time so Servo can probe filters without
+        // hashing the identifier again for each candidate.
         let hash = value.bytes().fold(2_166_136_261, |hash, byte| {
             (hash ^ u32::from(byte)).wrapping_mul(16_777_619)
         });
@@ -503,6 +507,8 @@ impl Element for ElementRef<'_> {
         self.tree.nodes[self.index].parent.is_none()
     }
     fn add_element_unique_hashes(&self, _filter: &mut BloomFilter) -> bool {
+        // Stop filter construction at the first element child. MatchBudget assumes
+        // that only anchors without element children can have a cached filter.
         false
     }
 }

@@ -56,6 +56,8 @@ for filename, ink, purple, grid, background in [
                     color=ink,
                 )
 
+        # Scale each page separately so the fastest fixtures remain readable
+        # alongside Wikipedia. Bars within a page share a zero baseline.
         ticks = ticker.MaxNLocator(
             nbins=2, steps=[1, 2, 2.5, 4, 5, 6, 7.5, 10]
         ).tick_values(0, ax.dataLim.xmax)

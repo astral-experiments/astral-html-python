@@ -25,6 +25,8 @@ name = "_astral_html"
 crate-type = ["cdylib"]
 
 [features]
+# Native wheels are faster on the tag-counting workload in benchmarks/wheel-abi.md.
+# Opt in to abi3 when one wheel needs to serve multiple Python versions.
 abi3 = ["pyo3/abi3-py314"]
 
 [dependencies]

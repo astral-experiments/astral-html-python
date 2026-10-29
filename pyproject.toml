@@ -26,6 +26,8 @@ Source = "https://github.com/astral-experiments/astral-html-python"
 Issues = "https://github.com/astral-experiments/astral-html-python/issues"
 
 [dependency-groups]
+# Keep the lower bounds at versions tested on both interpreters. Older releases
+# can fail to install or to parse the syntax used in the tests.
 dev = ["pytest>=9.1.1,<10", "ruff>=0.16.10,<0.17", "ty>=0.0.84,<0.1"]
 benchmark = [
     "selectolax>=1.0.0,<2",
@@ -49,6 +51,7 @@ cache-keys = [
     { file = "Cargo.toml" },
     { file = "Cargo.lock" },
     { file = "src/**/*.rs" },
+    # Name the project licenses explicitly so installed copies cannot trigger a rebuild.
     { file = "LICENSE-MIT" },
     { file = "LICENSE-APACHE" },
 ]
