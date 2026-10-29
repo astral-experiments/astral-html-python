@@ -124,7 +124,14 @@ Exceeding an HTML or CSS limit raises `astral_html.ResourceLimitError`. A query
 discards matches it found before reaching the limit. Both `ResourceLimitError`
 and `InvalidSelectorError` inherit from `ValueError`.
 
+Applications processing untrusted pages should also bound response size and
+concurrent parses. The tokenizer reads a start tag and its attributes even
+when the subtree filter later discards it. Peak memory therefore depends on
+the largest token as well as the number of retained nodes.
+
 ## Threads
 
 Parsing and searches release the GIL during native tree work. On free-threaded
 CPython, importing this module enables the GIL by default.
+The extension supports ordinary Python threads. It cannot currently load
+in a CPython subinterpreter, including workers in `InterpreterPoolExecutor`.

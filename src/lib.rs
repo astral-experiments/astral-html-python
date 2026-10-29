@@ -4,9 +4,9 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::Range;
 use std::sync::Arc;
 
-use pyo3::exceptions::{PyKeyError, PyValueError};
+use pyo3::exceptions::{PyKeyError, PyUnicodeEncodeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyAny, PyList, PyMappingProxy, PyString};
+use pyo3::types::{IntoPyDict, PyAny, PyList, PyMappingProxy, PySlice, PyString};
 
 mod selector;
 mod tree;
@@ -99,19 +99,71 @@ impl Element {
         }
     }
 
-    fn attribute(&self, name: &str) -> Option<&str> {
-        self.tree
-            .attribute(self.index, |key| key.eq_ignore_ascii_case(name.as_bytes()))
+    fn attribute(&self, name: &Bound<'_, PyString>) -> PyResult<Option<&str>> {
+        match name.to_str() {
+            Ok(name) => Ok(self
+                .tree
+                .attribute(self.index, |key| key.eq_ignore_ascii_case(name.as_bytes()))),
+            // A surrogate cannot occur in a UTF-8 attribute name.
+            Err(err) if err.is_instance_of::<PyUnicodeEncodeError>(name.py()) => Ok(None),
+            Err(err) => Err(err),
+        }
     }
+}
+
+/// Check the byte limit before CPython allocates and caches UTF-8 on the input.
+fn bounded_utf8<'a>(
+    value: &'a Bound<'_, PyString>,
+    limit: usize,
+    message: &'static str,
+) -> PyResult<&'a str> {
+    let py = value.py();
+    let str_type = py.get_type::<PyString>();
+    // Read the actual length even when a str subclass overrides __len__.
+    let chars = if value.is_exact_instance(&str_type) {
+        value.len()?
+    } else {
+        str_type.call_method1(c"__len__", (value,))?.extract()?
+    };
+    if chars > limit {
+        return Err(ResourceLimitError::new_err(message));
+    }
+    // Small inputs fit at four bytes per character. For large strings near
+    // the limit, str.isascii() is constant time and bypasses subclass methods.
+    if chars > limit / 4 && !str_type.call_method1(c"isascii", (value,))?.is_truthy()? {
+        // Size bounded slices without populating the input's UTF-8 cache.
+        // surrogatepass counts unpaired surrogates here; the final strict
+        // conversion still reports them against the original string.
+        let mut start = 0;
+        let mut bytes = 0;
+        while bytes + (chars - start) * 4 > limit {
+            let end = (start + 8192).min(chars);
+            let slice = PySlice::new(py, start as isize, end as isize, 1);
+            let chunk = str_type.call_method1(c"__getitem__", (value, slice))?;
+            bytes += chunk
+                .call_method1(c"encode", ("utf-8", "surrogatepass"))?
+                .len()?;
+            if bytes + (chars - end) > limit {
+                return Err(ResourceLimitError::new_err(message));
+            }
+            start = end;
+        }
+    }
+    value.to_str()
 }
 
 fn select<'a>(
     py: Python<'_>,
     tree: &'a Arc<Tree>,
     root: Option<usize>,
-    css: &str,
+    css: &Bound<'_, PyString>,
     first: bool,
 ) -> PyResult<impl ExactSizeIterator<Item = Element> + use<'a>> {
+    let css = bounded_utf8(
+        css,
+        selector::MAX_SELECTOR_BYTES,
+        selector::SELECTOR_SIZE_ERROR,
+    )?;
     let indices = py
         .detach(|| selector::select(tree, root, css, first))
         .map_err(|error| match error {
@@ -126,12 +178,16 @@ fn select<'a>(
 #[pymethods]
 impl Document {
     /// Find all matching elements in source order.
-    fn select<'py>(&self, py: Python<'py>, css: &str) -> PyResult<Bound<'py, PyList>> {
+    fn select<'py>(
+        &self,
+        py: Python<'py>,
+        css: &Bound<'_, PyString>,
+    ) -> PyResult<Bound<'py, PyList>> {
         PyList::new(py, select(py, &self.tree, None, css, false)?)
     }
 
     /// Find the first matching element, if any.
-    fn select_one(&self, py: Python<'_>, css: &str) -> PyResult<Option<Element>> {
+    fn select_one(&self, py: Python<'_>, css: &Bound<'_, PyString>) -> PyResult<Option<Element>> {
         Ok(select(py, &self.tree, None, css, true)?.next())
     }
 }
@@ -157,22 +213,27 @@ impl Element {
 
     /// Look up an attribute by ASCII-insensitive name, returning default if absent.
     #[pyo3(signature = (name, default=None))]
-    fn get(&self, py: Python<'_>, name: &str, default: Option<Py<PyAny>>) -> Py<PyAny> {
-        match self.attribute(name) {
+    fn get(
+        &self,
+        py: Python<'_>,
+        name: &Bound<'_, PyString>,
+        default: Option<Py<PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        Ok(match self.attribute(name)? {
             Some(value) => PyString::new(py, value).into_any().unbind(),
             None => default.unwrap_or_else(|| py.None()),
-        }
+        })
     }
 
     /// Return whether an attribute is present, ignoring ASCII case.
-    fn __contains__(&self, name: &str) -> bool {
-        self.attribute(name).is_some()
+    fn __contains__(&self, name: &Bound<'_, PyString>) -> PyResult<bool> {
+        Ok(self.attribute(name)?.is_some())
     }
 
     /// Look up a required attribute by ASCII-insensitive name.
-    fn __getitem__(&self, name: &str) -> PyResult<&str> {
-        self.attribute(name)
-            .ok_or_else(|| PyKeyError::new_err(name.to_owned()))
+    fn __getitem__(&self, name: &Bound<'_, PyString>) -> PyResult<&str> {
+        self.attribute(name)?
+            .ok_or_else(|| PyKeyError::new_err(name.clone().unbind()))
     }
 
     /// Descendant text in source order, joined without inserting spaces.
@@ -217,12 +278,16 @@ impl Element {
     }
 
     /// Find matching descendants. Use :scope in the selector to refer to this element.
-    fn select<'py>(&self, py: Python<'py>, css: &str) -> PyResult<Bound<'py, PyList>> {
+    fn select<'py>(
+        &self,
+        py: Python<'py>,
+        css: &Bound<'_, PyString>,
+    ) -> PyResult<Bound<'py, PyList>> {
         PyList::new(py, select(py, &self.tree, Some(self.index), css, false)?)
     }
 
     /// Find the first matching descendant in source order, or None.
-    fn select_one(&self, py: Python<'_>, css: &str) -> PyResult<Option<Self>> {
+    fn select_one(&self, py: Python<'_>, css: &Bound<'_, PyString>) -> PyResult<Option<Self>> {
         Ok(select(py, &self.tree, Some(self.index), css, true)?.next())
     }
 
@@ -265,9 +330,14 @@ fn retained_tag_names(value: &Bound<'_, PyAny>) -> PyResult<HashSet<String>> {
 #[pyfunction(signature = (html, *, retain_subtrees=None))]
 fn parse(
     py: Python<'_>,
-    html: &str,
+    html: &Bound<'_, PyString>,
     retain_subtrees: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Document> {
+    let html = bounded_utf8(
+        html,
+        astral_html::Limits::default().max_input_bytes,
+        tree::INPUT_SIZE_ERROR,
+    )?;
     let tags = retain_subtrees.map(retained_tag_names).transpose()?;
     let tree = py
         .detach(|| Tree::parse(html, tags.as_ref()))
