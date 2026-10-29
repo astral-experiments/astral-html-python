@@ -18,7 +18,7 @@ jobs:
       - name: Check out parser and published benchmarks
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ddc1b44f71c72985559c63aef791f121a18e5a32
+          ref: 432c7a23630c06dd6fd8fb0c0ff7254552cf32ac
           persist-credentials: false
           path: source
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
@@ -40,4 +40,10 @@ jobs:
         working-directory: source
         run: |
           curl --fail --location --retry 3 --retry-all-errors 'https://codeload.github.com/Murrough-Foley/web-content-extraction-benchmark/tar.gz/c039d5ee9f5a3a984a0e167e63aacd04e76e78a9' -o "$RUNNER_TEMP/wcxb.tar.gz"
-          .venv/bin/python -I "$GITHUB_WORKSPACE/driver/.github/measure_published.py" probe
+          .venv/bin/python -I "$GITHUB_WORKSPACE/driver/.github/measure_published.py" full
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: published-benchmark-results
+          path: ${{ runner.temp }}/results/
+          if-no-files-found: warn
