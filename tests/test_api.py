@@ -26,6 +26,8 @@ def test_parse_and_traverse() -> None:
     copied["href"] = "/changed"
     assert link["HREF"] == link.get("Href") == "/guide?x=1&y=2"
     assert link["disabled"] == ""
+    assert "DISABLED" in link
+    assert "missing" not in link
     with pytest.raises(KeyError) as missing:
         _ = link["ABSENT"]
     assert missing.value.args == ("ABSENT",)

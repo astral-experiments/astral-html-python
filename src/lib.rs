@@ -164,6 +164,11 @@ impl Element {
         }
     }
 
+    /// Return whether an attribute is present, ignoring ASCII case.
+    fn __contains__(&self, name: &str) -> bool {
+        self.attribute(name).is_some()
+    }
+
     /// Look up a required attribute by ASCII-insensitive name.
     fn __getitem__(&self, name: &str) -> PyResult<&str> {
         self.attribute(name)

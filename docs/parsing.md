@@ -50,7 +50,8 @@ assert link.text == "Read the guide"
 - `link["href"]` reads a required attribute and raises `KeyError` if it is
   missing. Use `link.get("href", default)` for an optional attribute. The
   default is `None` when omitted. Both lookups ignore ASCII case. A relative
-  URL stays relative.
+  URL stays relative. Test presence with `"disabled" in element`. This also
+  finds boolean attributes whose value is an empty string.
 - `link.attrs` is a read-only mapping with ASCII-lowercased keys. For example,
   `link["HREF"]` and `link.attrs["href"]` read the same attribute. Use
   `dict(link.attrs)` for a mutable copy. Tag names are also ASCII-lowercased,
