@@ -15,19 +15,29 @@ cargo fmt --check
 uv run --locked cargo clippy --locked --all-targets -- -D warnings
 ```
 
-## Testing the wheel
+## Testing wheels
 
-CI builds and tests a separate wheel for CPython 3.14 and 3.15. Each job
-builds its wheel from the source distribution. To repeat the package test
-on Linux, first build and install the wheel for your interpreter.
-[Wheel build and installation commands](../benchmarks/README.md#reproduce)
+CI builds one source distribution and uses it for every wheel. CPython 3.14
+and 3.15 each test their own native wheel and the same `cp314-abi3` wheel
+built on 3.14. The tests use GIL-enabled CPython. CI also checks the license
+notices in each artifact. To build the native wheel on Linux, follow the
+[benchmark build instructions](../benchmarks/README.md#reproduce).
 
-Run pytest with the environment's Python to test the installed wheel. The
-`-I` flag prevents Python from adding the current directory to the import path.
+To test the stable ABI on both versions, run from the repository root.
 
 ```sh
-.venv/bin/python -I -m pytest --import-mode=importlib
+dist=$(mktemp -d)
+uv build --sdist --no-sources --out-dir "$dist" --python 3.14
+uv build "$dist"/*.tar.gz --wheel --no-sources --out-dir "$dist" --python 3.14 \
+    --config-setting 'build-args=--compatibility pypi --auditwheel check --features abi3'
+for py in 3.14 3.15; do
+    uv sync --locked --no-install-project --group benchmark --python "$py"
+    uv pip install --python .venv/bin/python --no-deps --strict --reinstall "$dist"/*-cp314-abi3-*.whl
+    .venv/bin/python -I -m pytest --import-mode=importlib
+done
 ```
+
+The `-I` flag prevents Python from adding the checkout to the import path.
 
 Set the package version in `pyproject.toml` and `Cargo.toml`. CI also checks
 the benchmark outputs and runs a short timing sample.

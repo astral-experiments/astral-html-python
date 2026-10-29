@@ -25,6 +25,9 @@ include = [
 name = "_astral_html"
 crate-type = ["cdylib"]
 
+[features]
+abi3 = ["pyo3/abi3-py314"]
+
 [dependencies]
 astral-html = "=0.0.3"
 pyo3 = "0.29"
