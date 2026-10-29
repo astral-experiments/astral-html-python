@@ -52,7 +52,7 @@ def test_malformed_end_tags_void_elements_and_self_closing_scopes() -> None:
     assert field.get("value") == "&"
     assert span.text == "x"
 
-    partial = parse(source, tags=["a"])
+    partial = parse(source, retain_subtrees=["a"])
     assert [e.tag for e in partial.select("*")] == ["a", "em", "a", "span"]
     for doc in (full, partial):
         assert [e.text for e in doc.select("a")] == ["start inner", "x"]
@@ -67,7 +67,9 @@ def test_deep_mismatched_end_tags_close_innermost_scope(tags: list[str] | None) 
         + "</p>between<p>second<b>child</p><b>last</p>outside"
         + "<p>third<i>child</div>outside<p>fourth"
     )
-    outer, first, second, third, fourth = parse(source, tags=tags).select("p")
+    outer, first, second, third, fourth = parse(source, retain_subtrees=tags).select(
+        "p"
+    )
     assert (first.text, second.text) == ("firstchild", "secondchild")
     assert outer.text == "outerfirstchildbetweensecondchildlast"
     assert outer.select("p") == [first, second]
@@ -78,7 +80,8 @@ def test_deep_mismatched_end_tags_close_innermost_scope(tags: list[str] | None) 
 @pytest.mark.parametrize("tags", [None, ["textarea", "style"]])
 def test_rcdata_and_raw_text(tags: list[str] | None) -> None:
     doc = parse(
-        "<textarea>&amp; <b>x</b></textarea><style>&amp; <b>x</b></style>", tags=tags
+        "<textarea>&amp; <b>x</b></textarea><style>&amp; <b>x</b></style>",
+        retain_subtrees=tags,
     )
     textarea, style = doc.select("*")
     assert textarea.text == "& <b>x</b>"
@@ -87,7 +90,7 @@ def test_rcdata_and_raw_text(tags: list[str] | None) -> None:
 
 def test_partial_tree_roots_and_discarded_branches() -> None:
     source = "<main><h1>discard</h1><a>first <b>bold</b></a><aside><a>second</a>"
-    doc = parse(source, tags=iter(["A"]))
+    doc = parse(source, retain_subtrees=iter(["A"]))
     first, bold, second = doc.select("*")
     assert (first.text, bold.text, second.text) == ("first bold", "bold", "second")
     assert first.parent is None
@@ -96,15 +99,22 @@ def test_partial_tree_roots_and_discarded_branches() -> None:
     assert doc.select(":root") == doc.select(":scope") == [first, second]
 
 
+def test_retain_subtrees_accepts_a_single_tag_name() -> None:
+    source = "<a>skip</a><article><b>keep</b></article>"
+    (article,) = parse(source, retain_subtrees="ARTICLE").select(":root")
+    assert (article.tag, article.text) == ("article", "keep")
+    assert [child.tag for child in article.children] == ["b"]
+
+
 def test_partial_tree_with_nested_matches_or_empty_filter() -> None:
     source = '<div><a href="outer"><span><a href="inner">nested</a></span></a></div>'
-    outer, span, inner = parse(source, tags=["a", "span"]).select("*")
+    outer, span, inner = parse(source, retain_subtrees=["a", "span"]).select("*")
     assert (outer.get("href"), span.tag, inner.get("href")) == (
         "outer",
         "span",
         "inner",
     )
-    assert parse(source, tags=[]).select("*") == []
+    assert parse(source, retain_subtrees=[]).select("*") == []
 
 
 def test_sibling_selectors_across_discarded_ancestors() -> None:
@@ -114,7 +124,7 @@ def test_sibling_selectors_across_discarded_ancestors() -> None:
     assert (
         full.select("main > a + b + a") == full.select("main > a:nth-child(3)") == [two]
     )
-    partial = parse(source, tags=["a"])
+    partial = parse(source, retain_subtrees=["a"])
     _, two, three = partial.select("a")
     assert partial.select("a + a") == [two, three]
     assert partial.select("a:nth-child(2)") == [two]
@@ -129,7 +139,9 @@ def test_partial_parse_preserves_real_page_links(page: str, link_count: int) -> 
     source = (fixtures / f"{page}.html").read_text(encoding="utf-8")
 
     def links(tags: list[str] | None) -> list[tuple[dict[str, str], str]]:
-        return [(e.attrs, e.text) for e in parse(source, tags=tags).select("a")]
+        return [
+            (e.attrs, e.text) for e in parse(source, retain_subtrees=tags).select("a")
+        ]
 
     full = links(None)
     assert len(full) == link_count
@@ -139,11 +151,11 @@ def test_partial_parse_preserves_real_page_links(page: str, link_count: int) -> 
 def test_input_limits_include_discarded_content() -> None:
     source = "é" * (64 * 1024 * 1024 + 1)
     for tags in (None, ["a"]):
-        parse("<div>" * 256 + "<br>", tags=tags)
+        parse("<div>" * 256 + "<br>", retain_subtrees=tags)
         with pytest.raises(ValueError, match="nesting limit"):
-            parse("<div>" * 257, tags=tags)
+            parse("<div>" * 257, retain_subtrees=tags)
         with pytest.raises(ValueError, match="byte limit"):
-            parse(source, tags=tags)
+            parse(source, retain_subtrees=tags)
 
 
 def test_text_outside_elements_does_not_consume_the_node_limit() -> None:
@@ -161,9 +173,9 @@ def test_empty_document_and_invalid_input() -> None:
     assert parse("").select("*") == []
     with pytest.raises(TypeError):
         parse(b"<p>bytes</p>")  # ty: ignore[invalid-argument-type]
-    with pytest.raises(TypeError):
-        parse("", tags="a")
-    with pytest.raises(TypeError):
-        parse("", tags=[1])  # ty: ignore[invalid-argument-type]
     with pytest.raises(ValueError):
-        parse("", tags=[""])
+        parse("", retain_subtrees="")
+    with pytest.raises(TypeError):
+        parse("", retain_subtrees=[1])  # ty: ignore[invalid-argument-type]
+    with pytest.raises(ValueError):
+        parse("", retain_subtrees=[""])

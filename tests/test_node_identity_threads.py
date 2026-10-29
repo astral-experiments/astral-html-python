@@ -10,7 +10,7 @@ from astral_html import Element, parse
 
 @pytest.mark.parametrize("tags", [None, ["main"]])
 def test_element_identity_across_queries_and_traversal(tags: list[str] | None) -> None:
-    document = parse("<main><i>same</i><i>same</i></main>", tags=tags)
+    document = parse("<main><i>same</i><i>same</i></main>", retain_subtrees=tags)
     (main,) = document.select("main")
     first, second = main.children
     aliases = [
@@ -48,10 +48,10 @@ def test_element_identity_is_per_parse_and_outlives_document(
     tags: list[str] | None,
 ) -> None:
     source = '<main><i data-url="/café">Café &amp; tea <b>too</b></i></main>'
-    document = parse(source, tags=tags)
+    document = parse(source, retain_subtrees=tags)
     (element,) = document.select("i")
     (alias,) = document.select("i")
-    (other,) = parse(source, tags=tags).select("i")
+    (other,) = parse(source, retain_subtrees=tags).select("i")
     assert element != other
     assert len({element, alias, other}) == 2
     before = hash(element)
