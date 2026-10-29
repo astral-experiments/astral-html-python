@@ -51,7 +51,8 @@ assert link.text == "Read the guide"
   missing. Use `link.get("href", default)` for an optional attribute. The
   default is `None` when omitted. Both lookups ignore ASCII case. A relative
   URL stays relative.
-- `link.attrs` is a read-only mapping with ASCII-lowercased keys. Use
+- `link.attrs` is a read-only mapping with ASCII-lowercased keys. For example,
+  `link["HREF"]` and `link.attrs["href"]` read the same attribute. Use
   `dict(link.attrs)` for a mutable copy. Tag names are also ASCII-lowercased,
   and the first duplicate attribute wins.
 - `text` joins descendant text in source order without inserting spaces.
@@ -63,8 +64,8 @@ assert link.text == "Read the guide"
   `<p>NewYork<br></p>`, the only fragment is `"NewYork"`. Tags such as
   `br` contribute no text of their own.
 - `iter_content()` yields the element’s direct text fragments and child elements
-  in source order. Use it when the position of a tag matters. For example, to
-  turn line breaks into newlines:
+  in source order. This example turns a paragraph’s direct `br` children
+  into newlines.
 
 ```python
 (p,) = parse("<p><br>A<i>B</i><br></p>").select("p")
