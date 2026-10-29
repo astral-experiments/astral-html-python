@@ -39,7 +39,7 @@ impl ElementRef<'_> {
                 &mut scanned,
             )
         });
-        self.budget.scan_attribute(scanned);
+        self.budget.scan_bytes(scanned);
         value
     }
     pub(super) fn value_equals(&self, actual: &[u8], needle: &[u8], case: CaseSensitivity) -> bool {
@@ -48,7 +48,7 @@ impl ElementRef<'_> {
         }
         let mut scanned = 0;
         let equal = equal_bytes(actual, needle, case, &mut scanned);
-        self.budget.scan_attribute(scanned);
+        self.budget.scan_bytes(scanned);
         equal
     }
     pub(super) fn has_word(&self, actual: &str, word: &str, case: CaseSensitivity) -> bool {
@@ -63,7 +63,7 @@ impl ElementRef<'_> {
             scanned += part.len() + 1;
             case.eq(part.as_bytes(), word.as_bytes())
         });
-        self.budget.scan_attribute(scanned);
+        self.budget.scan_bytes(scanned);
         found
     }
     fn has_substring(&self, mut actual: &str, needle: &str, case: CaseSensitivity) -> bool {
@@ -80,7 +80,7 @@ impl ElementRef<'_> {
                     .position(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
             };
             self.budget
-                .scan_attribute(offset.map_or(actual.len(), |i| i + needle.len()));
+                .scan_bytes(offset.map_or(actual.len(), |i| i + needle.len()));
             return offset.is_some();
         }
         // Fold long insensitive needles for linear substring search. Start with
@@ -92,7 +92,7 @@ impl ElementRef<'_> {
             let end = actual.ceil_char_boundary((advance + needle.len() - 1).min(actual.len()));
             let block = &actual[..end];
             // Lowercasing touches the whole block even if it contains a match.
-            self.budget.scan_attribute(block.len());
+            self.budget.scan_bytes(block.len());
             let found = block.to_ascii_lowercase().contains(&folded);
             if found || end == actual.len() {
                 return found;

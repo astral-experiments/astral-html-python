@@ -5,8 +5,6 @@ use std::panic;
 
 use selectors::matching::SelectorCaches;
 
-use super::SelectorShape;
-
 // Cancellation must unwind Rust frames, including stacker's extra stack.
 #[cfg(panic = "abort")]
 compile_error!("astral-html selector limits require the Rust panic=unwind strategy");
@@ -14,56 +12,64 @@ compile_error!("astral-html selector limits require the Rust panic=unwind strate
 const MIN_WORK_BUDGET: usize = 256 * 1024;
 const WORK_PER_NODE: usize = 64;
 const COMPONENTS_PER_WORK_UNIT: usize = 16;
-const MIN_ATTRIBUTE_BYTES: usize = 8 * 1024 * 1024;
-const ATTRIBUTE_PASSES: usize = 16;
+const MIN_SCAN_BYTES: usize = 8 * 1024 * 1024;
+const SCAN_PASSES: usize = 16;
 pub(super) const SHORT_SCAN: usize = 64;
 const RELATIVE_CACHE_BATCH: usize = 1024;
 const RELATIVE_CACHE_LIMIT: usize = 8192;
 
 pub(super) struct MatchBudget {
     work_left: Cell<usize>,
-    attribute_bytes_left: Cell<usize>,
-    visit_cost: usize,
+    scan_bytes_left: Cell<usize>,
+    visit_cost: Cell<usize>,
     relative_cache_uses: Option<Cell<usize>>,
 }
 
 impl MatchBudget {
-    pub(super) fn new(nodes: usize, string_bytes: usize, shape: SelectorShape) -> Self {
+    pub(super) fn new(nodes: usize, string_bytes: usize, has_relative: bool) -> Self {
         Self {
             // Budget linear scans and allow some complex queries on small trees.
             work_left: Cell::new(nodes.saturating_mul(WORK_PER_NODE).max(MIN_WORK_BUDGET)),
             // Even a single node may need to scan most of the retained strings.
-            attribute_bytes_left: Cell::new(
+            scan_bytes_left: Cell::new(
                 string_bytes
-                    .saturating_mul(ATTRIBUTE_PASSES)
-                    .max(MIN_ATTRIBUTE_BYTES),
+                    .saturating_mul(SCAN_PASSES)
+                    .max(MIN_SCAN_BYTES),
             ),
-            // A wide list of simple selectors can match without any Element calls.
-            visit_cost: shape.components.div_ceil(COMPONENTS_PER_WORK_UNIT).max(1),
-            relative_cache_uses: shape.has_relative.then(Cell::default),
+            visit_cost: Cell::new(1),
+            relative_cache_uses: has_relative.then(Cell::default),
         }
     }
 
     #[inline]
+    pub(super) fn start_selector(&self, components: usize) {
+        // Servo can match many components without calling back into Element.
+        // Charge for this alternative only; later alternatives may never run.
+        self.visit_cost
+            .set(components.div_ceil(COMPONENTS_PER_WORK_UNIT).max(1));
+        self.visit();
+    }
+
+    #[inline]
     pub(super) fn visit(&self) {
-        let Some(remaining) = self.work_left.get().checked_sub(self.visit_cost) else {
+        let Some(remaining) = self.work_left.get().checked_sub(self.visit_cost.get()) else {
             cancel("CSS selector exceeded the matching work limit");
         };
         self.work_left.set(remaining);
     }
 
     #[inline]
-    pub(super) fn scan_attribute(&self, bytes: usize) {
+    pub(super) fn scan_bytes(&self, bytes: usize) {
         // Short comparisons are already covered by the per-visit work charge.
         if bytes > SHORT_SCAN {
             let Some(remaining) = self
-                .attribute_bytes_left
+                .scan_bytes_left
                 .get()
                 .checked_sub(bytes - SHORT_SCAN)
             else {
                 cancel("CSS selector exceeded the matching work limit");
             };
-            self.attribute_bytes_left.set(remaining);
+            self.scan_bytes_left.set(remaining);
         }
     }
 
