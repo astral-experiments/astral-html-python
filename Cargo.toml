@@ -12,6 +12,7 @@ include = [
     "/Cargo.lock",
     "/LICENSE-*",
     "/README.md",
+    "/THIRD-PARTY-NOTICES.txt",
     "/benchmarks/filtered-links*.png",
     "/pyproject.toml",
     "/python/astral_html/*.py",

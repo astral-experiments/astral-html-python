@@ -40,6 +40,7 @@ jobs:
           --config-setting 'build-args=--compatibility pypi --auditwheel check'
       - name: Test the installed wheel
         run: |
+          python scripts/check_notices.py "$RUNNER_TEMP"/dist/*.tar.gz "$RUNNER_TEMP"/dist/*.whl
           uv pip install --python .venv/bin/python --no-deps --strict "$RUNNER_TEMP"/dist/*.whl
           uv run --no-sync python -I -m pytest --import-mode=importlib
           uv run --no-sync python -I benchmarks/run.py --check
