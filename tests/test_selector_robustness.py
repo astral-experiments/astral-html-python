@@ -104,6 +104,40 @@ def test_work_limit_without_tree_traversal() -> None:
         parse("<i></i>" * 4_000).select(f":is({wide})")
 
 
+def test_selector_alternatives_are_charged_individually() -> None:
+    doc = parse("<i></i>" * 5_000)
+    tags = ", ".join(f"x{i}" for i in range(33))
+    assert doc.select(tags) == []
+    assert doc.select(f"{tags}, i") == doc.select("i")
+
+
+def test_unrelated_has_does_not_charge_nth_child_to_relative_cache() -> None:
+    doc = parse("<i></i>" * 9_000 + "<b></b>")
+    b = doc.select_one("b:nth-child(9001)")
+    assert b is not None
+    assert doc.select_one("b:nth-child(9001), x:has(*)") == b
+
+
+def test_repeated_tag_name_scans_on_a_shared_ancestor_are_bounded() -> None:
+    tag = "x" * 8192
+    doc = parse(f"<{tag}>" + "<i></i>" * 2000)
+    with pytest.raises(ResourceLimitError, match="matching work limit"):
+        doc.select(tag[:-1] + "y > i")
+    # A mismatch in the first byte or in the length is cheap.
+    assert doc.select("y" + tag[1:] + " > i") == []
+    assert doc.select("x > i") == []
+
+
+@pytest.mark.parametrize("open_block, close_block", [("[", "]"), ("{", "}")])
+def test_selector_nesting_limit_without_parentheses(
+    open_block: str, close_block: str
+) -> None:
+    selector = open_block * 33 + "x" + close_block * 33
+    for suffix in ("", "/*(*/"):
+        with pytest.raises(ResourceLimitError, match="nesting limit"):
+            parse("").select(selector + suffix)
+
+
 def test_repeated_attribute_value_scans_are_bounded() -> None:
     value = "first " + "word " * 200_000 + "last"
     doc = parse(f'<p class="{value}">')

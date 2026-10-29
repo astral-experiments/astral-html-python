@@ -27,7 +27,9 @@ const MAX_SELECTOR_BYTES: usize = 256 * 1024;
 /// Rename the function so Servo rejects it at the right forgiving-list boundary.
 /// This scan also bounds nesting before Servo parses selector functions.
 fn prepare_selector(css: &str) -> Result<Cow<'_, str>, String> {
-    if !css.contains('(') {
+    if !css.contains('(')
+        && (css.len() <= usize::from(MAX_BLOCK_DEPTH) || !css.contains(['[', '{']))
+    {
         return Ok(Cow::Borrowed(css));
     }
     fn scan(
@@ -159,9 +161,11 @@ fn select_with_stack(
         SelectError::InvalidSelector(format!("invalid CSS selector {css:?}: {error:?}"))
     })?;
     let selectors = selectors.slice();
-    let mut shape = SelectorShape::default();
+    let mut alternatives = Vec::with_capacity(selectors.len());
     for selector in selectors {
+        let mut shape = SelectorShape::default();
         check_match_depth(selector, 0, &mut shape).map_err(SelectError::ResourceLimit)?;
+        alternatives.push((selector, shape));
     }
     // Only a literal tag in the rightmost compound is required of every match.
     // Selector lists and selectors without a literal tag use the full matcher for each node.
@@ -177,7 +181,7 @@ fn select_with_stack(
     };
     let offset = usize::from(tag.is_some_and(|(_, first)| first));
     let nodes = tree.descendants(root);
-    let budget = MatchBudget::new(nodes.len(), tree.string_bytes(), shape);
+    let budget = MatchBudget::new(nodes.len(), tree.string_bytes());
     let mut caches = matching::SelectorCaches::default();
     let mut context = matching::MatchingContext::new(
         matching::MatchingMode::Normal,
@@ -200,8 +204,8 @@ fn select_with_stack(
                 index,
                 budget: &budget,
             };
-            if selectors.iter().any(|selector| {
-                budget.visit();
+            if alternatives.iter().any(|(selector, shape)| {
+                budget.start_selector(shape);
                 matching::matches_complex_selector(
                     selector.iter_from(offset),
                     &element,
@@ -386,13 +390,17 @@ impl Element for ElementRef<'_> {
         true
     }
     fn has_local_name(&self, name: &CssName) -> bool {
-        self.name() == name.value.as_bytes()
+        self.value_equals(
+            self.name(),
+            name.value.as_bytes(),
+            CaseSensitivity::CaseSensitive,
+        )
     }
     fn has_namespace(&self, namespace: &CssName) -> bool {
         namespace.value.is_empty()
     }
     fn is_same_type(&self, other: &Self) -> bool {
-        self.name() == other.name()
+        self.value_equals(self.name(), other.name(), CaseSensitivity::CaseSensitive)
     }
     fn attr_matches(
         &self,
