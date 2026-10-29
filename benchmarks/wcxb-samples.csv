@@ -1,51 +1,51 @@
 sample,parser,all_completed_us_per_page,identical_output_us_per_page
-1,astral-html,797.047,808.786
-1,selectolax (Lexbor),976.862,898.871
-1,lxml,2900.755,2587.929
-1,Beautiful Soup,24340.642,19795.269
-1,astral-html partial,720.480,727.091
-2,selectolax (Lexbor),1049.145,1050.223
-2,lxml,2939.693,2685.114
-2,Beautiful Soup,24350.598,20193.580
-2,astral-html partial,740.336,730.293
-2,astral-html,809.041,818.237
-3,lxml,3000.938,2710.898
-3,Beautiful Soup,24704.514,20461.578
-3,astral-html partial,744.172,740.399
-3,astral-html,822.410,821.594
-3,selectolax (Lexbor),984.010,919.644
-4,Beautiful Soup,24817.331,20747.649
-4,astral-html partial,738.043,735.497
-4,astral-html,780.811,778.882
-4,selectolax (Lexbor),969.176,887.749
-4,lxml,2958.380,2738.420
-5,astral-html partial,754.692,812.910
-5,astral-html,780.435,765.515
-5,selectolax (Lexbor),974.935,899.186
-5,lxml,2919.135,2602.987
-5,Beautiful Soup,24338.417,19913.068
-6,astral-html,780.155,755.920
-6,selectolax (Lexbor),974.626,892.125
-6,lxml,2955.275,2710.570
-6,Beautiful Soup,24246.719,19919.269
-6,astral-html partial,721.107,737.408
-7,selectolax (Lexbor),1056.293,1081.736
-7,lxml,2928.888,2615.601
-7,Beautiful Soup,24241.669,19991.415
-7,astral-html partial,737.573,769.542
-7,astral-html,782.590,775.385
-8,lxml,2950.723,2702.157
-8,Beautiful Soup,24180.958,20004.315
-8,astral-html partial,720.063,693.944
-8,astral-html,776.225,764.130
-8,selectolax (Lexbor),993.523,893.153
-9,Beautiful Soup,24437.210,19922.023
-9,astral-html partial,797.063,900.684
-9,astral-html,803.874,791.093
-9,selectolax (Lexbor),972.236,890.017
-9,lxml,2917.250,2605.571
-10,astral-html partial,724.949,701.473
-10,astral-html,794.632,816.478
-10,selectolax (Lexbor),1007.785,933.929
-10,lxml,2965.039,2675.483
-10,Beautiful Soup,24259.147,20020.940
+1,astral-html,728.454,727.346
+1,selectolax (Lexbor),949.104,865.728
+1,lxml,2753.787,2461.092
+1,Beautiful Soup,31463.854,25607.386
+1,astral-html partial,670.765,666.574
+2,selectolax (Lexbor),990.197,955.974
+2,lxml,2762.543,2505.988
+2,Beautiful Soup,31427.347,25665.280
+2,astral-html partial,681.306,656.579
+2,astral-html,734.032,724.121
+3,lxml,2744.137,2468.590
+3,Beautiful Soup,31656.519,25719.913
+3,astral-html partial,679.336,680.682
+3,astral-html,728.672,722.716
+3,selectolax (Lexbor),942.021,859.358
+4,Beautiful Soup,31468.347,25864.884
+4,astral-html partial,670.631,650.608
+4,astral-html,735.836,723.277
+4,selectolax (Lexbor),953.036,868.833
+4,lxml,2725.562,2451.362
+5,astral-html partial,693.463,722.765
+5,astral-html,727.766,709.300
+5,selectolax (Lexbor),972.564,866.071
+5,lxml,2753.834,2463.569
+5,Beautiful Soup,31563.560,25643.304
+6,astral-html,728.030,705.232
+6,selectolax (Lexbor),948.521,870.985
+6,lxml,2765.482,2504.781
+6,Beautiful Soup,31382.606,25715.728
+6,astral-html partial,674.149,672.007
+7,selectolax (Lexbor),998.194,982.056
+7,lxml,2757.664,2472.745
+7,Beautiful Soup,31547.126,25743.198
+7,astral-html partial,686.350,694.502
+7,astral-html,731.937,718.914
+8,lxml,2758.099,2493.820
+8,Beautiful Soup,31414.736,25553.678
+8,astral-html partial,674.108,650.517
+8,astral-html,730.312,708.837
+8,selectolax (Lexbor),961.477,876.035
+9,Beautiful Soup,31597.153,25734.886
+9,astral-html partial,703.685,744.730
+9,astral-html,730.290,710.448
+9,selectolax (Lexbor),947.322,863.408
+9,lxml,2725.472,2456.554
+10,astral-html partial,673.320,654.504
+10,astral-html,721.909,713.729
+10,selectolax (Lexbor),949.573,867.357
+10,lxml,2782.834,2578.792
+10,Beautiful Soup,31458.365,25614.311

@@ -36,6 +36,11 @@ wheel’s SHA-256. The source distribution’s SHA-256 was
 `b6d58b708ad1c575d9b732547c86c50c496087d76e5f5ab1d5588b7154ad55b8`.
 [Wheel sources at `98a6a38`](https://github.com/astral-experiments/astral-html-python/tree/98a6a38dcc5e3f85e77a11139e38927d511430a4)
 
+A second run on GitHub Actions measured the same 140 pages using CPython
+3.14.9 and 3.15.1. For full link extraction, ABI3 took 1.12% longer on 3.14
+(95% interval −0.41% to +3.33%) and 0.82% less time on 3.15
+(−2.30% to +0.23%). [Independent measurements and wheel hashes](https://github.com/astral-experiments/astral-html-python/blob/d52265197b7bcc11f43afcab280e5e5306d20c61/results/wheel-abi/wheel-abi.md)
+
 ## Historical results at `4ba2c2f`
 
 Before timing, we set a practical equivalence range of ±5%. With ABI3 on
