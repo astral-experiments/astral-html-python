@@ -33,6 +33,12 @@ including whitespace and duplicate links. Link totals cover each parser's
 successful pages. The two Astral modes must agree with each other on every
 page, including which inputs they can parse.
 
+The check also compares each parser's results with its pinned SHA-256 digest.
+In sorted body-digest order, it hashes the 32-byte body digest followed by the
+ordered link pairs as compact ASCII JSON. A rejected page contributes `null`,
+and a successful page with no links contributes `[]`. This pins the membership
+of both timing groups as well as the extracted URLs and text.
+
 | Parser | Pages matching Lexbor (of 1,867) | Rejected pages | Extracted links |
 | --- | ---: | ---: | ---: |
 | astral-html-python | 1,757 | 1 | 323,196 |
@@ -96,3 +102,9 @@ taskset -c "$cpu" .venv/bin/python -I benchmarks/run.py --wcxb "$data/wcxb.tar.g
 On systems without Linux CPU affinity, omit the `cpu` assignment and
 `taskset -c "$cpu"`. Pass `--check` to run only the corpus and output checks.
 The timing run prints each worker's measurements before the summary.
+
+For an intentional parser or dependency change, run `--check` on the pinned
+archive with the locked dependencies. A mismatch reports the observed digests.
+Compare the old and new ordered pairs and rejections on the affected parser
+before updating `WCXB_OUTPUT_DIGESTS` in the runner. Refresh the agreement
+table and timings when the outputs or comparison groups change.
