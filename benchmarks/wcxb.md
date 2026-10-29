@@ -58,16 +58,16 @@ contribute the same measurements to both columns.
 
 | Parser | All 1,866 pages (µs/page ± SE) | Identical output on 617 pages (µs/page ± SE) |
 | --- | ---: | ---: |
-| astral-html-python | 792.7 ± 4.9 | 789.6 ± 7.9 |
-| selectolax (Lexbor) | 995.9 ± 10.2 | 934.7 ± 22.5 |
-| lxml | 2,943.6 ± 9.1 | 2,663.5 ± 17.4 |
-| Beautiful Soup (lxml) | 24,391.7 ± 66.1 | 20,096.9 ± 93.0 |
-| astral-html-python, link subtrees | 739.8 ± 7.3 | 754.9 ± 19.3 |
+| astral-html-python | 729.7 ± 1.2 | 716.4 ± 2.5 |
+| selectolax (Lexbor) | 961.2 ± 6.2 | 887.6 ± 13.8 |
+| lxml | 2,752.9 ± 5.6 | 2,485.7 ± 12.1 |
+| Beautiful Soup (lxml) | 31,498.0 ± 28.0 | 25,686.3 ± 28.0 |
+| astral-html-python, link subtrees | 680.7 ± 3.4 | 679.3 ± 10.2 |
 
-On the 617 pages with identical output, Astral's full-tree scrape took
-15.2% less time per page than Lexbor on average. The 95% confidence
-interval for that reduction was 11.0% to 19.3%, using paired worker timings
-and Student's t distribution. [Raw process timings](wcxb-samples.csv)
+On the 617 pages with identical output, Astral's full-tree scrape took 19.1%
+less time per page than Lexbor on average. The 95% confidence interval for
+that reduction was 16.6% to 21.7%, using paired worker timings and Student's t
+distribution. [Raw process timings](wcxb-samples.csv)
 
 Times are mean microseconds per page ± one standard error across ten fresh
 worker processes. Each worker shuffles pages within the identical-output and
@@ -78,12 +78,14 @@ collects garbage before timing each group and leaves cyclic GC enabled while
 scraping. Archive reads, decompression, output comparison, and warmup are
 outside the timer.
 
-We measured a native astral-html-python 0.1.0 release wheel built from the
-source distribution with Rust 1.99.0 and maturin 1.15.0. The run used
-CPython 3.14.8 on a Linux x86-64 AMD EPYC Milan VM with glibc 2.39, pinned
-to logical CPU 8. The other libraries were selectolax 1.0.0, lxml 6.1.3,
-cssselect 1.5.0, and Beautiful Soup 4.15.0 with the lxml backend.
-[Parser revision `bfb4136`](https://github.com/astral-experiments/astral-html-python/tree/bfb41367a78cf1ad76ed5e583b78770acd58689e)
+We measured astral-html-python 0.0.1 on a GitHub-hosted x86_64 runner with
+Ubuntu 24.04.5 LTS and an AMD EPYC 7763 64-Core Processor. We pinned the
+workers to logical CPU 0. We built the release wheel from the source
+distribution with Rust 1.99.0 and maturin 1.15.0. The run used CPython 3.14.9
+and glibc 2.39. The other libraries were selectolax 1.0.0 (Lexbor), lxml 6.1.3
+with cssselect 1.5.0, and Beautiful Soup 4.15.0 with its lxml backend.
+[Parser and runner revision `98a6a38`](https://github.com/astral-experiments/astral-html-python/tree/98a6a38dcc5e3f85e77a11139e38927d511430a4) ·
+[Measurement run](https://github.com/astral-experiments/astral-html-python/actions/runs/40938603187)
 
 ## Reproduce
 
