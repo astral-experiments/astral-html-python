@@ -84,7 +84,19 @@ fn check_match_depth(
 ) -> Result<(), String> {
     let mut depth = outer_depth + 1;
     for component in selector.iter_raw_match_order() {
-        shape.components += 1;
+        // Each name or attribute test goes through a charged Element callback.
+        // A nested list may short-circuit without even visiting most of them.
+        if !matches!(
+            component,
+            Component::LocalName(_)
+                | Component::ID(_)
+                | Component::Class(_)
+                | Component::AttributeInNoNamespaceExists { .. }
+                | Component::AttributeInNoNamespace { .. }
+                | Component::AttributeOther(_)
+        ) {
+            shape.unmetered_components += 1;
+        }
         depth += usize::from(matches!(component, Component::Combinator(_)));
     }
     if depth > MAX_MATCH_DEPTH {
@@ -100,6 +112,7 @@ fn check_match_depth(
                 }
             }
             Component::NthOf(nth) => {
+                shape.has_nth_of = true;
                 for nested in nth.selectors() {
                     check_match_depth(nested, depth, shape)?;
                 }
@@ -119,7 +132,8 @@ fn check_match_depth(
 #[derive(Default)]
 struct SelectorShape {
     has_relative: bool,
-    components: usize,
+    has_nth_of: bool,
+    unmetered_components: usize,
 }
 
 pub enum SelectError {
@@ -160,17 +174,16 @@ fn select_with_stack(
     let selectors = SelectorList::parse(&Css, &mut parser, ParseRelative::No).map_err(|error| {
         SelectError::InvalidSelector(format!("invalid CSS selector {css:?}: {error:?}"))
     })?;
-    let selectors = selectors.slice();
-    let mut alternatives = Vec::with_capacity(selectors.len());
-    for selector in selectors {
+    let mut alternatives = Vec::with_capacity(selectors.slice().len());
+    for selector in selectors.slice() {
         let mut shape = SelectorShape::default();
         check_match_depth(selector, 0, &mut shape).map_err(SelectError::ResourceLimit)?;
         alternatives.push((selector, shape));
     }
     // Only a literal tag in the rightmost compound is required of every match.
     // Selector lists and selectors without a literal tag use the full matcher for each node.
-    let tag = match selectors {
-        [selector] => selector.iter().enumerate().find_map(|(i, component)| {
+    let tag = match alternatives.as_slice() {
+        [(selector, _)] => selector.iter().enumerate().find_map(|(i, component)| {
             let Component::LocalName(name) = component else {
                 return None;
             };
@@ -195,17 +208,23 @@ fn select_with_stack(
     limits::with_match_limits(move || {
         let mut output = Vec::new();
         for (index, name) in tree.elements_in(nodes) {
+            // This prefilter inspects each retained name at most once per query.
             if tag.is_some_and(|(tag, _)| tag != name) {
                 continue;
             }
             budget.start_element(context.selector_caches);
-            let element = ElementRef {
-                tree,
-                index,
-                budget: &budget,
-            };
             if alternatives.iter().any(|(selector, shape)| {
-                budget.start_selector(shape);
+                // Pure leaf selectors pay through their callbacks. A lone
+                // skipped tag has already been tested once by the prefilter.
+                if shape.unmetered_components != 0 {
+                    budget.visit(shape);
+                }
+                let element = ElementRef {
+                    tree,
+                    index,
+                    shape,
+                    budget: &budget,
+                };
                 matching::matches_complex_selector(
                     selector.iter_from(offset),
                     &element,
@@ -327,6 +346,7 @@ struct ElementRef<'tree> {
     tree: &'tree Tree,
     index: usize,
     budget: &'tree MatchBudget,
+    shape: &'tree SelectorShape,
 }
 impl fmt::Debug for ElementRef<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -341,7 +361,7 @@ impl ElementRef<'_> {
             .expect("expected an element")
     }
     fn at(&self, index: usize) -> Self {
-        self.budget.visit();
+        self.budget.visit(self.shape);
         Self { index, ..*self }
     }
 }
@@ -349,7 +369,7 @@ impl ElementRef<'_> {
 impl Element for ElementRef<'_> {
     type Impl = Css;
     fn opaque(&self) -> OpaqueElement {
-        self.budget.record_identity();
+        self.budget.record_identity(self.shape);
         OpaqueElement::new(&self.tree.nodes[self.index])
     }
     fn parent_element(&self) -> Option<Self> {
@@ -380,7 +400,7 @@ impl Element for ElementRef<'_> {
         let children = self
             .tree
             .children(self.index)
-            .inspect(|_| self.budget.visit());
+            .inspect(|_| self.budget.visit(self.shape));
         self.tree
             .elements_in(children)
             .next()
@@ -390,7 +410,8 @@ impl Element for ElementRef<'_> {
         true
     }
     fn has_local_name(&self, name: &CssName) -> bool {
-        self.value_equals(
+        self.budget.visit(self.shape);
+        self.bytes_equal(
             self.name(),
             name.value.as_bytes(),
             CaseSensitivity::CaseSensitive,
@@ -400,7 +421,7 @@ impl Element for ElementRef<'_> {
         namespace.value.is_empty()
     }
     fn is_same_type(&self, other: &Self) -> bool {
-        self.value_equals(self.name(), other.name(), CaseSensitivity::CaseSensitive)
+        self.bytes_equal(self.name(), other.name(), CaseSensitivity::CaseSensitive)
     }
     fn attr_matches(
         &self,
@@ -409,6 +430,7 @@ impl Element for ElementRef<'_> {
         operation: &AttrSelectorOperation<&CssString>,
     ) -> bool {
         if matches!(namespace, NamespaceConstraint::Specific(name) if !name.value.is_empty()) {
+            self.budget.visit(self.shape);
             return false;
         }
         let Some(actual) = self.attribute(&name.value) else {
@@ -442,7 +464,7 @@ impl Element for ElementRef<'_> {
     }
     fn has_id(&self, id: &CssName, case: CaseSensitivity) -> bool {
         self.attribute("id")
-            .is_some_and(|value| self.value_equals(value.as_bytes(), id.value.as_bytes(), case))
+            .is_some_and(|value| self.bytes_equal(value.as_bytes(), id.value.as_bytes(), case))
     }
     fn has_class(&self, class: &CssName, case: CaseSensitivity) -> bool {
         self.attribute("class")
