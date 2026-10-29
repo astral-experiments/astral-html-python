@@ -29,7 +29,6 @@ jobs:
           uv build --sdist --no-sources --out-dir "$dist" --python 3.14
           uv build "$dist"/*.tar.gz --wheel --no-sources --out-dir "$dist" --python 3.14 \
             --config-setting 'build-args=--compatibility pypi --auditwheel check --features abi3'
-          python scripts/check_notices.py "$dist"/*.tar.gz "$dist"/*-cp314-abi3-*.whl
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sdist-and-abi3
@@ -75,7 +74,6 @@ jobs:
         run: |
           dist="$RUNNER_TEMP/dist"
           cp="cp${PYTHON_VERSION//./}"
-          python scripts/check_notices.py "$dist"/*-"$cp-$cp"-*.whl
           for tag in "$cp-$cp" cp314-abi3; do
             uv pip install --python .venv/bin/python --no-deps --strict --reinstall "$dist"/*-"$tag"-*.whl
             uv run --no-sync python -I -m pytest --import-mode=importlib

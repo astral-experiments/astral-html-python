@@ -19,8 +19,8 @@ uv run --locked cargo clippy --locked --all-targets -- -D warnings
 
 CI builds one source distribution and uses it for every wheel. CPython 3.14
 and 3.15 each test their own native wheel and the same `cp314-abi3` wheel
-built on 3.14. The tests use GIL-enabled CPython. CI also checks the license
-notices in each artifact. To build the native wheel on Linux, follow the
+built on 3.14. The tests use GIL-enabled CPython. To build the native wheel
+on Linux, follow the
 [benchmark build instructions](../benchmarks/README.md#reproduce).
 
 To test the stable ABI on both versions, run from the repository root.
