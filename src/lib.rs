@@ -3,9 +3,9 @@ use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyAny, PyDict, PyList, PyString};
+use pyo3::types::{IntoPyDict, PyAny, PyList, PyMappingProxy, PyString};
 
 mod selector;
 mod tree;
@@ -27,10 +27,17 @@ struct Document {
 }
 
 /// A handle to a node that keeps its parsed tree alive.
-#[pyclass(module = "astral_html", frozen)]
+#[pyclass(module = "astral_html", frozen, mapping)]
 struct Element {
     tree: Arc<Tree>,
     index: usize,
+}
+
+impl Element {
+    fn attribute(&self, name: &str) -> Option<&str> {
+        self.tree
+            .attribute(self.index, |key| key.eq_ignore_ascii_case(name.as_bytes()))
+    }
 }
 
 fn select<'a>(
@@ -71,22 +78,26 @@ impl Element {
         std::str::from_utf8(name).expect("tag names are UTF-8")
     }
 
-    /// A new dictionary of attributes. Changes to it do not affect the tree.
+    /// A read-only mapping of the element's attributes, with ASCII-lowercased keys.
     #[getter]
-    fn attrs<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        self.tree.attributes(self.index).into_py_dict(py)
+    fn attrs<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyMappingProxy>> {
+        let attrs = self.tree.attributes(self.index).into_py_dict(py)?;
+        Ok(PyMappingProxy::new(py, attrs.as_mapping()))
     }
 
     /// Look up an attribute by ASCII-insensitive name, returning default if absent.
     #[pyo3(signature = (name, default=None))]
     fn get(&self, py: Python<'_>, name: &str, default: Option<Py<PyAny>>) -> Py<PyAny> {
-        match self
-            .tree
-            .attribute(self.index, |key| key.eq_ignore_ascii_case(name.as_bytes()))
-        {
+        match self.attribute(name) {
             Some(value) => PyString::new(py, value).into_any().unbind(),
             None => default.unwrap_or_else(|| py.None()),
         }
+    }
+
+    /// Look up a required attribute by ASCII-insensitive name.
+    fn __getitem__(&self, name: &str) -> PyResult<&str> {
+        self.attribute(name)
+            .ok_or_else(|| PyKeyError::new_err(name.to_owned()))
     }
 
     /// Descendant text in source order, joined without inserting spaces.

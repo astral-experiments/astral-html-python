@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -19,8 +20,15 @@ def test_parse_and_traverse() -> None:
 
     attrs = link.attrs
     assert attrs == {"href": "/guide?x=1&y=2", "disabled": ""}
-    attrs["href"] = "/changed"
-    assert link.get("HREF") == "/guide?x=1&y=2"
+    with pytest.raises(TypeError):
+        attrs["href"] = "/changed"  # ty: ignore[invalid-assignment]
+    copied = dict(attrs)
+    copied["href"] = "/changed"
+    assert link["HREF"] == link.get("Href") == "/guide?x=1&y=2"
+    assert link["disabled"] == ""
+    with pytest.raises(KeyError) as missing:
+        _ = link["ABSENT"]
+    assert missing.value.args == ("ABSENT",)
     assert link.get("missing") is None
     fallback = object()
     assert link.get("missing", fallback) is fallback
@@ -138,7 +146,7 @@ def test_partial_parse_preserves_real_page_links(page: str, link_count: int) -> 
     fixtures = Path(__file__).resolve().parents[1] / "benchmarks" / "fixtures"
     source = (fixtures / f"{page}.html").read_text(encoding="utf-8")
 
-    def links(tags: list[str] | None) -> list[tuple[dict[str, str], str]]:
+    def links(tags: list[str] | None) -> list[tuple[Mapping[str, str], str]]:
         return [
             (e.attrs, e.text) for e in parse(source, retain_subtrees=tags).select("a")
         ]

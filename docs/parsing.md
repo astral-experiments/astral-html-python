@@ -47,11 +47,13 @@ assert link.text == "Read the guide"
 - `tag`, `parent`, and `children` give the tag name, parent element (or
   `None`), and direct child elements. Handles to the same node compare equal
   and have the same hash. Each handle keeps its tree alive.
-- `get(name, default=None)` reads one attribute and returns the default when
-  the attribute is absent. For example, `link.get("href")` above returns
-  `"/guide"`. A relative URL stays relative. `attrs` returns a fresh
-  dictionary. Tag and attribute names use ASCII lowercase, and the first
-  duplicate attribute wins.
+- `link["href"]` reads a required attribute and raises `KeyError` if it is
+  missing. Use `link.get("href", default)` for an optional attribute. The
+  default is `None` when omitted. Both lookups ignore ASCII case. A relative
+  URL stays relative.
+- `link.attrs` is a read-only mapping with ASCII-lowercased keys. Use
+  `dict(link.attrs)` for a mutable copy. Tag names are also ASCII-lowercased,
+  and the first duplicate attribute wins.
 - `text` joins descendant text in source order without inserting spaces.
   The tokenizer normalizes newlines and decodes character references except
   in raw text such as `script`.
