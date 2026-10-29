@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::ops::Range;
 use std::sync::Arc;
 
 use pyo3::exceptions::{PyKeyError, PyValueError};
@@ -46,7 +47,58 @@ struct Element {
     index: usize,
 }
 
+enum Traversal {
+    DescendantText,
+    DirectContent,
+}
+
+#[pyclass(module = "astral_html._astral_html", name = "_ContentIterator")]
+struct ContentIterator {
+    tree: Option<Arc<Tree>>,
+    nodes: Range<usize>,
+    traversal: Traversal,
+}
+
+#[pymethods]
+impl ContentIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__<'py>(&mut self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let Some(tree) = &self.tree else {
+            return Ok(None);
+        };
+        match self.traversal {
+            Traversal::DescendantText => {
+                if let Some(text) = tree.text_in(&mut self.nodes).next() {
+                    return Ok(Some(PyString::new(py, text).into_any()));
+                }
+            }
+            Traversal::DirectContent => {
+                if let Some(i) = tree.next_child(&mut self.nodes) {
+                    let item = match &tree.nodes[i].kind {
+                        Kind::Text(span) => PyString::new(py, tree.string(span)).into_any(),
+                        Kind::Element { .. } => Bound::new(py, tree.element(i))?.into_any(),
+                    };
+                    return Ok(Some(item));
+                }
+            }
+        }
+        self.tree = None;
+        Ok(None)
+    }
+}
+
 impl Element {
+    fn content_iterator(&self, traversal: Traversal) -> ContentIterator {
+        ContentIterator {
+            tree: Some(self.tree.clone()),
+            nodes: self.tree.descendants(Some(self.index)),
+            traversal,
+        }
+    }
+
     fn attribute(&self, name: &str) -> Option<&str> {
         self.tree
             .attribute(self.index, |key| key.eq_ignore_ascii_case(name.as_bytes()))
@@ -122,12 +174,7 @@ impl Element {
     #[getter]
     fn text(&self) -> Cow<'_, str> {
         let tree = &self.tree;
-        let mut segments = tree.nodes[tree.descendants(Some(self.index))]
-            .iter()
-            .filter_map(|node| match &node.kind {
-                Kind::Text(segment) => Some(tree.string(segment)),
-                _ => None,
-            });
+        let mut segments = tree.text_in(tree.descendants(Some(self.index)));
         let first = segments.next().unwrap_or("");
         let Some(second) = segments.next() else {
             return Cow::Borrowed(first);
@@ -135,6 +182,16 @@ impl Element {
         let mut text = [first, second].concat();
         text.extend(segments);
         Cow::Owned(text)
+    }
+
+    /// Yield descendant text fragments in source order, preserving whitespace.
+    fn iter_text(&self) -> ContentIterator {
+        self.content_iterator(Traversal::DescendantText)
+    }
+
+    /// Yield direct text fragments and child elements in source order.
+    fn iter_content(&self) -> ContentIterator {
+        self.content_iterator(Traversal::DirectContent)
     }
 
     /// The parent element, or None for a root of the retained tree.

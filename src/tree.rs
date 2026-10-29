@@ -225,14 +225,23 @@ impl Tree {
         nodes.filter_map(|i| self.element_name(i).map(|name| (i, name)))
     }
 
+    pub fn text_in(&self, nodes: impl Iterator<Item = usize>) -> impl Iterator<Item = &str> {
+        nodes.filter_map(|i| match &self.nodes[i].kind {
+            Kind::Text(span) => Some(self.string(span)),
+            Kind::Element { .. } => None,
+        })
+    }
+
     /// Direct children, including text nodes.
     pub fn children(&self, index: usize) -> impl Iterator<Item = usize> {
         let mut nodes = self.descendants(Some(index));
-        std::iter::from_fn(move || {
-            let i = nodes.next()?;
-            nodes.start = self.nodes[i].end as usize;
-            Some(i)
-        })
+        std::iter::from_fn(move || self.next_child(&mut nodes))
+    }
+
+    pub fn next_child(&self, nodes: &mut Range<usize>) -> Option<usize> {
+        let i = nodes.next()?;
+        nodes.start = self.nodes[i].end as usize;
+        Some(i)
     }
 
     fn attribute_spans(&self, index: usize) -> &[(Range<u32>, Range<u32>)] {
