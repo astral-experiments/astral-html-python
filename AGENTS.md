@@ -2,3 +2,4 @@
 * The Readme is concise and only contains deep information. Do not add random information there.
 * Consider if you need really new sections in the documentation, or if you can avoid it.
 * When the reason for a fix or improvement isn't clear from the code, add or update a comment beside the relevant logic. Explain the constraint it satisfies or the failure it prevents.
+* If we undo something previously done, document that, so we don't do it again.
