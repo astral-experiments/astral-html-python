@@ -1,0 +1,2 @@
+# CI builds on x86_64 Linux. Only accept the published wheel for that platform.
+maturin==1.15.0 --hash=sha256:653020a63525bb224e5ab0adf02e17a2e08bc86dbea7fc1399c9a56d7529b99e

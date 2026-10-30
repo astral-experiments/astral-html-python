@@ -42,5 +42,6 @@ done
 
 The `-I` flag prevents Python from adding the checkout to the import path.
 
-Set the package version in `pyproject.toml` and `Cargo.toml`.
-[Cargo.toml](../Cargo.toml) · [CI workflow](../.github/workflows/ci.yml)
+For a release, update the version in `pyproject.toml` and `Cargo.toml`, refresh
+both lockfiles, and add a matching entry to [CHANGELOG.md](../CHANGELOG.md).
+After merging, run **Start release** on `main` with that version.
