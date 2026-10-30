@@ -100,6 +100,11 @@ def test_work_limit_without_tree_traversal() -> None:
     with pytest.raises(ResourceLimitError, match="matching work limit"):
         parse("<i></i>" * 4_000).select(f":is({wide})")
 
+    # Even empty subtrees need one cache lookup per :has() alternative.
+    relatives = ",".join(["x"] * 128)
+    with pytest.raises(ResourceLimitError, match="matching work limit"):
+        parse("<i></i>" * 4_000).select(f":has({relatives})")
+
 
 def test_selector_alternatives_are_charged_individually() -> None:
     doc = parse("<i></i>" * 5_000)
@@ -234,10 +239,9 @@ def test_relative_cache_rotation_preserves_late_and_negated_matches() -> None:
 @pytest.mark.parametrize(
     "compound", ["[x]" * 4096, "x" * 8192], ids=["wide", "long-name"]
 )
-def test_relative_filter_scans_on_empty_elements_are_bounded(compound: str) -> None:
+def test_relative_selectors_skip_empty_subtrees(compound: str) -> None:
     doc = parse("<i></i>" * 2048)
-    with pytest.raises(ResourceLimitError, match="matching work limit"):
-        doc.select(f":has(.absent, :where({compound}))")
+    assert doc.select(f":has(.absent, :where({compound}))") == []
     # The next-sibling match skips both descendant alternatives on every
     # element except the last one.
     assert doc.select(f":has(+ i, .absent, {compound})") == doc.select(

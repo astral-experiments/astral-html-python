@@ -104,3 +104,22 @@ def test_host_text_in_strings_comments_and_identifiers_is_preserved() -> None:
     doc = parse('<p data-value=":host(div)" class="host(foo)"></p>')
     for selector in ['[data-value=":host(div)"]', "p/*:host(div)*/", r".host\(foo\)"]:
         assert len(doc.select(selector)) == 1
+
+
+def test_relative_selectors_search_sibling_subtrees_from_the_anchor() -> None:
+    doc = parse(
+        "<p id='one'></p><p id='two'><b><i></i></b></p><p id='three'></p><i></i>"
+    )
+    one, two, three = doc.select("p")
+    assert doc.select("p:has(+ p > b i)") == [one]
+    assert doc.select("p:has(~ p b > i)") == [one]
+    assert doc.select("p:has(+ p + i)") == [two]
+    assert doc.select("p:has(+ i)") == [three]
+
+
+def test_reverse_sibling_ranks_skip_nonmatching_siblings() -> None:
+    doc = parse("<b class='q'></b><i></i><b></b><i class='q'></i><b class='q'></b>")
+    one, _, three, four, five = doc.select("*")
+    assert doc.select(":nth-last-child(2 of .q)") == [four]
+    assert doc.select("b:nth-last-of-type(2)") == [three]
+    assert doc.select(":nth-last-child(odd of .q)") == [one, five]
