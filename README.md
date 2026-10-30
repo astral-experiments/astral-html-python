@@ -25,13 +25,6 @@ processes. Whiskers show one standard error, and each page has its own scale.
 
 ## Quick start
 
-From the repository root, use `uv` and Rust 1.97 or newer to build the
-extension and start Python.
-
-```sh
-uv run --locked --python 3.14 python
-```
-
 Pass the page HTML as a string, then select the links that have an `href`.
 
 ```python
