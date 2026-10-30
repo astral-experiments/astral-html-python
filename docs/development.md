@@ -11,10 +11,12 @@ uv run --locked pytest
 uv run --locked ruff check .
 uv run --locked ruff format --check .
 uv run --locked --group benchmark ty check
-uvx zizmor==1.31.1 --offline --strict-collection --collect=workflows,actions .
+uv run --locked --only-group zizmor --no-build zizmor --strict-collection --collect=workflows,actions .
 cargo fmt --check
 uv run --locked cargo clippy --locked --all-targets -- -D warnings
 ```
+
+Set `GH_TOKEN` to a read-only GitHub token to include the same online audits as CI.
 
 ## Testing wheels
 

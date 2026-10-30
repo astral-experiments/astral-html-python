@@ -114,4 +114,9 @@ jobs:
           version: *uv-version
           # Leave the shared uv cache to jobs that install project dependencies.
           enable-cache: false
-      - run: uvx zizmor==1.31.1 --offline --strict-collection --collect=workflows,actions .
+      - name: Install the locked zizmor wheel
+        run: uv sync --locked --only-group zizmor --no-build
+      - name: Audit GitHub Actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .venv/bin/zizmor --strict-collection --collect=workflows,actions .
