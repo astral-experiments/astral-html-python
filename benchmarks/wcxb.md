@@ -41,11 +41,11 @@ of both timing groups as well as the extracted URLs and text.
 
 | Parser | Pages matching Lexbor (of 1,867) | Rejected pages | Extracted links |
 | --- | ---: | ---: | ---: |
-| astral-html-python | 1,757 | 1 | 323,196 |
+| astral-html | 1,757 | 1 | 323,196 |
 | selectolax (Lexbor) | 1,867 | 0 | 323,120 |
 | lxml | 1,698 | 0 | 323,344 |
 | Beautiful Soup (lxml) | 641 | 0 | 323,458 |
-| astral-html-python, link subtrees | 1,757 | 1 | 323,196 |
+| astral-html, link subtrees | 1,757 | 1 | 323,196 |
 
 Both Astral modes rejected `dev/html/2875.html.gz` at the nesting limit.
 [Parser limits](../docs/parsing.md#resource-limits)
@@ -58,11 +58,11 @@ contribute the same measurements to both columns.
 
 | Parser | All 1,866 pages (µs/page ± SE) | Identical output on 617 pages (µs/page ± SE) |
 | --- | ---: | ---: |
-| astral-html-python | 729.7 ± 1.2 | 716.4 ± 2.5 |
+| astral-html | 729.7 ± 1.2 | 716.4 ± 2.5 |
 | selectolax (Lexbor) | 961.2 ± 6.2 | 887.6 ± 13.8 |
 | lxml | 2,752.9 ± 5.6 | 2,485.7 ± 12.1 |
 | Beautiful Soup (lxml) | 31,498.0 ± 28.0 | 25,686.3 ± 28.0 |
-| astral-html-python, link subtrees | 680.7 ± 3.4 | 679.3 ± 10.2 |
+| astral-html, link subtrees | 680.7 ± 3.4 | 679.3 ± 10.2 |
 
 On the 617 pages with identical output, Astral's full-tree scrape took 19.1%
 less time per page than Lexbor on average. The 95% confidence interval for
@@ -78,9 +78,9 @@ collects garbage before timing each group and leaves cyclic GC enabled while
 scraping. Archive reads, decompression, output comparison, and warmup are
 outside the timer.
 
-We measured astral-html-python 0.0.1 on a GitHub-hosted x86_64 runner with
-Ubuntu 24.04.5 LTS and an AMD EPYC 7763 64-Core Processor. We pinned the
-workers to logical CPU 0. We built the release wheel from the source
+We measured astral-html-python 0.0.1 (now named astral-html) on a GitHub-hosted
+x86_64 runner with Ubuntu 24.04.5 LTS and an AMD EPYC 7763 64-Core Processor.
+We pinned the workers to logical CPU 0. We built the release wheel from the source
 distribution with Rust 1.99.0 and maturin 1.15.0. The run used CPython 3.14.9
 and glibc 2.39. The other libraries were selectolax 1.0.0 (Lexbor), lxml 6.1.3
 with cssselect 1.5.0, and Beautiful Soup 4.15.0 with its lxml backend.

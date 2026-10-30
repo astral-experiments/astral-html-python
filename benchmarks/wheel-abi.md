@@ -117,7 +117,8 @@ python -I benchmarks/wheel_abi.py --summarize benchmarks/wheel-abi-samples/4ba2c
 
 Run from the repository root with Rust 1.99.0 and both supported Python
 versions available to uv. Start with the October 29 wheel sources and the
-benchmark runner in this checkout.
+benchmark runner in this checkout. Both measured revisions used the former
+distribution name `astral-html-python`.
 
 ```sh
 d=$(mktemp -d)
@@ -161,6 +162,6 @@ for py in 3.14.8 3.15.0; do
     interpreter="$d/env-$py/bin/python"
     cpu=$("$interpreter" -c 'import os; print(min(os.sched_getaffinity(0)))')
     taskset -c "$cpu" "$interpreter" -I "$runner" \
-        "$d/wcxb" "$d/wheels" --output "$d/results-$py.json"
+        "$d/wcxb" "$d/wheels" --distribution astral-html-python --output "$d/results-$py.json"
 done
 ```

@@ -336,7 +336,7 @@ def main():
         cli.error("need a positive, finite batch time")
 
     packages = [
-        "astral-html-python",
+        "astral-html",
         "selectolax",
         "lxml",
         "cssselect",

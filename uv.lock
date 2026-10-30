@@ -7,7 +7,7 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P7D"
 
 [[package]]
-name = "astral-html-python"
+name = "astral-html"
 version = "0.0.1"
 source = { editable = "." }
 

@@ -1,4 +1,4 @@
-# astral-html-python
+# astral-html
 
 > [!WARNING]
 >
@@ -7,13 +7,13 @@
 ---
 
 A very fast HTML parser with CSS selectors for Python web scrapers. It’s written
-in Rust and uses the [astral-html](https://github.com/astral-sh/astral-html) tokenizer.
+in Rust and uses the [astral-html tokenizer crate](https://github.com/astral-sh/astral-html).
 
 <!-- Keep chart paths relative so GitHub shows the images from the revision being viewed. -->
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="benchmarks/filtered-links-dark.png">
-    <img src="benchmarks/filtered-links.png" width="660" alt="Mean scrape time for four parsers. astral-html-python took the least time on the Wikipedia, PyPI, and GitHub pages.">
+    <img src="benchmarks/filtered-links.png" width="660" alt="Mean scrape time for four parsers. astral-html took the least time on the Wikipedia, PyPI, and GitHub pages.">
   </picture>
 </p>
 

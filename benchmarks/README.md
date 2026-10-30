@@ -2,7 +2,7 @@
 
 Each full scrape starts with a saved UTF-8 response body in memory and ends
 with a Python list of `(href, descendant text)` pairs. It includes parsing,
-CSS selection, and extraction. The astral-html-python API takes a string, so
+CSS selection, and extraction. The astral-html API takes a string, so
 its timed parse includes UTF-8 decoding. The other parsers receive the bytes
 directly. Disk and network I/O are outside the timer.
 
@@ -65,9 +65,9 @@ Parsing and full scrapes create a new tree each iteration. Automatic collection
 can reclaim earlier trees during timing. Any cleanup after the measured batch
 is outside the timer. The last column reuses one parsed document.
 
-We measured astral-html-python 0.0.1 on a GitHub-hosted x86_64 runner with
-Ubuntu 24.04.5 LTS and an AMD EPYC 7763 64-Core Processor. We pinned the
-workers to logical CPU 0. We built the release wheel from the source
+We measured astral-html-python 0.0.1 (now named astral-html) on a GitHub-hosted
+x86_64 runner with Ubuntu 24.04.5 LTS and an AMD EPYC 7763 64-Core Processor.
+We pinned the workers to logical CPU 0. We built the release wheel from the source
 distribution with Rust 1.99.0 and maturin 1.15.0. The run used CPython 3.14.9
 and glibc 2.39. The other libraries were selectolax 1.0.0 (Lexbor), lxml 6.1.3
 with cssselect 1.5.0, and Beautiful Soup 4.15.0 with its lxml backend.
