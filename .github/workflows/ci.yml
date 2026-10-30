@@ -64,6 +64,9 @@ jobs:
           name: sdist-and-abi3
           path: ${{ runner.temp }}/dist
       - name: Build a native wheel from the source distribution
+        # Exercise selector limits with abort in the native wheels and the default strategy in abi3.
+        env:
+          CARGO_PROFILE_RELEASE_PANIC: abort
         run: >-
           uv build "$RUNNER_TEMP"/dist/*.tar.gz --wheel --no-sources
           --out-dir "$RUNNER_TEMP/dist" --python .venv/bin/python

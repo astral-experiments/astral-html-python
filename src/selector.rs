@@ -1,23 +1,20 @@
-//! Servo selector matching over the source-order tree.
+//! Parse CSS with Servo and match its selectors against the source-order tree.
 
 use std::{borrow::Cow, fmt, ops::Range};
 
 use cssparser::ToCss;
 use precomputed_hash::PrecomputedHash;
-use selectors::attr::{AttrSelectorOperation, CaseSensitivity, NamespaceConstraint};
-use selectors::bloom::BloomFilter;
-use selectors::matching::{self, ElementSelectorFlags};
 use selectors::parser::{
     self, Component, ParseRelative, Selector, SelectorList, SelectorParseErrorKind,
 };
-use selectors::{Element, OpaqueElement};
 
 use crate::tree::Tree;
 mod attributes;
 mod limits;
-use limits::{FilterCost, MatchBudget};
+mod matching;
+use matching::Matcher;
 
-// Servo recurses both across combinators and into selector functions. HTML's
+// Matching recurses both across combinators and into selector functions. HTML's
 // nesting limit cannot protect shallow trees with long sibling selectors.
 const MAX_MATCH_DEPTH: usize = 128;
 const MAX_BLOCK_DEPTH: u8 = 32;
@@ -78,28 +75,13 @@ fn prepare_selector(css: &str) -> Result<Cow<'_, str>, String> {
 /// lists. Alternatives and consecutive simple selectors run sequentially and
 /// do not add stack depth. Counting the whole outer chain for each nested list
 /// is conservative, including functions in compounds to the left of a sibling.
-fn check_match_depth(
-    selector: &Selector<Css>,
-    outer_depth: usize,
-    shape: &mut SelectorShape,
-) -> Result<(), String> {
-    let mut depth = outer_depth + 1;
-    for component in selector.iter_raw_match_order() {
-        // Each name or attribute test goes through a charged Element callback.
-        // A nested list may short-circuit without even visiting most of them.
-        if !matches!(
-            component,
-            Component::LocalName(_)
-                | Component::ID(_)
-                | Component::Class(_)
-                | Component::AttributeInNoNamespaceExists { .. }
-                | Component::AttributeInNoNamespace { .. }
-                | Component::AttributeOther(_)
-        ) {
-            shape.unmetered_components += 1;
-        }
-        depth += usize::from(matches!(component, Component::Combinator(_)));
-    }
+fn check_match_depth(selector: &Selector<Css>, outer_depth: usize) -> Result<(), String> {
+    let depth = outer_depth
+        + 1
+        + selector
+            .iter_raw_match_order()
+            .filter(|c| c.is_combinator())
+            .count();
     if depth > MAX_MATCH_DEPTH {
         return Err(format!(
             "CSS selector exceeds the matching complexity limit ({MAX_MATCH_DEPTH} nested compounds)"
@@ -109,38 +91,23 @@ fn check_match_depth(
         match component {
             Component::Is(list) | Component::Where(list) | Component::Negation(list) => {
                 for nested in list.slice() {
-                    check_match_depth(nested, depth, shape)?;
+                    check_match_depth(nested, depth)?;
                 }
             }
             Component::NthOf(nth) => {
-                shape.has_nth_of = true;
                 for nested in nth.selectors() {
-                    check_match_depth(nested, depth, shape)?;
+                    check_match_depth(nested, depth)?;
                 }
             }
             Component::Has(list) => {
-                shape.has_relative = true;
                 for nested in list.iter() {
-                    check_match_depth(&nested.selector, depth, shape)?;
-                    if nested.match_hint.is_descendant_direction() {
-                        shape.descendant_relatives += 1;
-                        shape.relative_filter.include(&nested.selector);
-                    }
+                    check_match_depth(&nested.selector, depth)?;
                 }
             }
             _ => {}
         }
     }
     Ok(())
-}
-
-#[derive(Default)]
-struct SelectorShape {
-    has_relative: bool,
-    has_nth_of: bool,
-    unmetered_components: usize,
-    descendant_relatives: usize,
-    relative_filter: FilterCost,
 }
 
 pub enum SelectError {
@@ -156,8 +123,8 @@ pub fn select(
     css: &str,
     first: bool,
 ) -> Result<Vec<usize>, SelectError> {
-    // Small Python worker stacks need room for selector recursion and for
-    // :has() to descend up to 256 HTML levels. Keep parsing and drops here too.
+    // Small Python worker stacks need room for recursive selector matching,
+    // including parsing and dropping nested selector lists.
     stacker::maybe_grow(1024 * 1024, 2 * 1024 * 1024, || {
         select_with_stack(tree, root, css, first)
     })
@@ -179,83 +146,12 @@ fn select_with_stack(
     let selectors = SelectorList::parse(&Css, &mut parser, ParseRelative::No).map_err(|error| {
         SelectError::InvalidSelector(format!("invalid CSS selector {css:?}: {error:?}"))
     })?;
-    // Matching stops at the first successful alternative for each candidate.
-    // Charge the query only for alternatives the matcher reaches.
-    let mut alternatives = Vec::with_capacity(selectors.slice().len());
     for selector in selectors.slice() {
-        let mut shape = SelectorShape::default();
-        check_match_depth(selector, 0, &mut shape).map_err(SelectError::ResourceLimit)?;
-        alternatives.push((selector, shape));
+        check_match_depth(selector, 0).map_err(SelectError::ResourceLimit)?;
     }
-    // Only a literal tag in the rightmost compound is required of every match.
-    // Selector lists and selectors without a literal tag use the full matcher for each node.
-    let tag = match alternatives.as_slice() {
-        [(selector, _)] => selector.iter().enumerate().find_map(|(i, component)| {
-            let Component::LocalName(name) = component else {
-                return None;
-            };
-            // Skip the tag test inside Servo only if no namespace test precedes it.
-            Some((name.lower_name.value.as_bytes(), i == 0))
-        }),
-        _ => None,
-    };
-    let offset = usize::from(tag.is_some_and(|(_, first)| first));
-    let nodes = tree.descendants(root);
-    // Servo constructs a filter on the second distinct relative selector's
-    // lookup for an anchor. Hits for the first selector use its result cache.
-    let can_build_filter = alternatives
-        .iter()
-        .map(|(_, shape)| shape.descendant_relatives)
-        .sum::<usize>()
-        > 1;
-    let budget = MatchBudget::new(nodes.len(), tree.string_bytes(), can_build_filter);
-    let mut caches = matching::SelectorCaches::default();
-    let mut context = matching::MatchingContext::new(
-        matching::MatchingMode::Normal,
-        None,
-        &mut caches,
-        matching::QuirksMode::NoQuirks,
-        matching::NeedsSelectorFlags::No,
-        matching::MatchingForInvalidation::No,
-    );
-    context.scope_element = root.map(|i| OpaqueElement::new(&tree.nodes[i]));
-    limits::with_match_limits(move || {
-        let mut output = Vec::new();
-        for (index, name) in tree.elements_in(nodes) {
-            // This prefilter inspects each retained name at most once per query.
-            if tag.is_some_and(|(tag, _)| tag != name) {
-                continue;
-            }
-            budget.start_element(context.selector_caches);
-            if alternatives.iter().any(|(selector, shape)| {
-                // Pure leaf selectors pay through their callbacks. A lone
-                // skipped tag has already been tested once by the prefilter.
-                if shape.unmetered_components != 0 {
-                    budget.visit(shape);
-                }
-                let element = ElementRef {
-                    tree,
-                    index,
-                    shape,
-                    budget: &budget,
-                };
-                matching::matches_complex_selector(
-                    selector.iter_from(offset),
-                    &element,
-                    &mut context,
-                    matching::SubjectOrPseudoElement::Yes,
-                )
-                .to_bool(true)
-            }) {
-                output.push(index);
-                if first {
-                    break;
-                }
-            }
-        }
-        output
-    })
-    .map_err(SelectError::ResourceLimit)
+    Matcher::new(tree, root)
+        .select(selectors.slice(), first)
+        .map_err(|reason| SelectError::ResourceLimit(reason.to_owned()))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -287,27 +183,15 @@ impl parser::SelectorImpl for Css {
     type ExtraMatchingData<'a> = ();
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct CssName {
     value: String,
-    hash: u32,
 }
 impl From<&str> for CssName {
     fn from(value: &str) -> Self {
-        // Compute FNV-1a once at parse time so Servo can probe filters without
-        // hashing the identifier again for each candidate.
-        let hash = value.bytes().fold(2_166_136_261, |hash, byte| {
-            (hash ^ u32::from(byte)).wrapping_mul(16_777_619)
-        });
         Self {
             value: value.to_owned(),
-            hash,
         }
-    }
-}
-impl Default for CssName {
-    fn default() -> Self {
-        Self::from("")
     }
 }
 impl ToCss for CssName {
@@ -317,7 +201,9 @@ impl ToCss for CssName {
 }
 impl PrecomputedHash for CssName {
     fn precomputed_hash(&self) -> u32 {
-        self.hash
+        self.value.bytes().fold(2_166_136_261, |hash, byte| {
+            (hash ^ u32::from(byte)).wrapping_mul(16_777_619)
+        })
     }
 }
 
@@ -354,161 +240,5 @@ impl parser::NonTSPseudoClass for UnsupportedPseudo {
 impl ToCss for UnsupportedPseudo {
     fn to_css<W: fmt::Write>(&self, _dest: &mut W) -> fmt::Result {
         match *self {}
-    }
-}
-
-#[derive(Clone, Copy)]
-struct ElementRef<'tree> {
-    tree: &'tree Tree,
-    index: usize,
-    budget: &'tree MatchBudget,
-    shape: &'tree SelectorShape,
-}
-impl fmt::Debug for ElementRef<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("ElementRef").field(&self.index).finish()
-    }
-}
-
-impl ElementRef<'_> {
-    fn name(&self) -> &[u8] {
-        self.tree
-            .element_name(self.index)
-            .expect("expected an element")
-    }
-    fn at(&self, index: usize) -> Self {
-        self.budget.visit(self.shape);
-        Self { index, ..*self }
-    }
-}
-
-impl Element for ElementRef<'_> {
-    type Impl = Css;
-    fn opaque(&self) -> OpaqueElement {
-        self.budget.record_identity(self);
-        OpaqueElement::new(&self.tree.nodes[self.index])
-    }
-    fn parent_element(&self) -> Option<Self> {
-        self.tree.nodes[self.index]
-            .parent
-            .map(|id| self.at(id.index()))
-    }
-    fn parent_node_is_shadow_root(&self) -> bool {
-        false
-    }
-    fn containing_shadow_host(&self) -> Option<Self> {
-        None
-    }
-    fn is_pseudo_element(&self) -> bool {
-        false
-    }
-    fn prev_sibling_element(&self) -> Option<Self> {
-        self.tree.nodes[self.index]
-            .prev_sibling
-            .map(|id| self.at(id.index()))
-    }
-    fn next_sibling_element(&self) -> Option<Self> {
-        self.tree.nodes[self.index]
-            .next_sibling
-            .map(|id| self.at(id.index()))
-    }
-    fn first_element_child(&self) -> Option<Self> {
-        let children = self
-            .tree
-            .children(self.index)
-            .inspect(|_| self.budget.visit(self.shape));
-        let child = self
-            .tree
-            .elements_in(children)
-            .next()
-            .map(|(index, _)| Self { index, ..*self });
-        if child.is_none() {
-            self.budget.saw_empty_children(self.index);
-        }
-        child
-    }
-    fn is_html_element_in_html_document(&self) -> bool {
-        true
-    }
-    fn has_local_name(&self, name: &CssName) -> bool {
-        self.budget.visit(self.shape);
-        self.bytes_equal(
-            self.name(),
-            name.value.as_bytes(),
-            CaseSensitivity::CaseSensitive,
-        )
-    }
-    fn has_namespace(&self, namespace: &CssName) -> bool {
-        namespace.value.is_empty()
-    }
-    fn is_same_type(&self, other: &Self) -> bool {
-        self.bytes_equal(self.name(), other.name(), CaseSensitivity::CaseSensitive)
-    }
-    fn attr_matches(
-        &self,
-        namespace: &NamespaceConstraint<&CssName>,
-        name: &CssName,
-        operation: &AttrSelectorOperation<&CssString>,
-    ) -> bool {
-        if matches!(namespace, NamespaceConstraint::Specific(name) if !name.value.is_empty()) {
-            self.budget.visit(self.shape);
-            return false;
-        }
-        let Some(actual) = self.attribute(&name.value) else {
-            return false;
-        };
-        self.matches_attribute_value(actual, operation)
-    }
-    fn has_attr_in_no_namespace(&self, name: &CssName) -> bool {
-        self.attribute(&name.value).is_some()
-    }
-    fn match_non_ts_pseudo_class(
-        &self,
-        pseudo: &UnsupportedPseudo,
-        _context: &mut matching::MatchingContext<'_, Css>,
-    ) -> bool {
-        match *pseudo {}
-    }
-    fn match_pseudo_element(
-        &self,
-        pseudo: &UnsupportedPseudo,
-        _context: &mut matching::MatchingContext<'_, Css>,
-    ) -> bool {
-        match *pseudo {}
-    }
-    fn apply_selector_flags(&self, _flags: ElementSelectorFlags) {}
-    fn is_link(&self) -> bool {
-        matches!(self.name(), b"a" | b"area" | b"link") && self.attribute("href").is_some()
-    }
-    fn is_html_slot_element(&self) -> bool {
-        false
-    }
-    fn has_id(&self, id: &CssName, case: CaseSensitivity) -> bool {
-        self.attribute("id")
-            .is_some_and(|value| self.bytes_equal(value.as_bytes(), id.value.as_bytes(), case))
-    }
-    fn has_class(&self, class: &CssName, case: CaseSensitivity) -> bool {
-        self.attribute("class")
-            .is_some_and(|value| self.has_word(value, &class.value, case))
-    }
-    fn has_custom_state(&self, _name: &CssName) -> bool {
-        false
-    }
-    fn imported_part(&self, _name: &CssName) -> Option<CssName> {
-        None
-    }
-    fn is_part(&self, _name: &CssName) -> bool {
-        false
-    }
-    fn is_empty(&self) -> bool {
-        self.index + 1 == self.tree.nodes[self.index].end as usize
-    }
-    fn is_root(&self) -> bool {
-        self.tree.nodes[self.index].parent.is_none()
-    }
-    fn add_element_unique_hashes(&self, _filter: &mut BloomFilter) -> bool {
-        // Stop filter construction at the first element child. MatchBudget assumes
-        // that only anchors without element children can have a cached filter.
-        false
     }
 }

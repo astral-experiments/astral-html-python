@@ -2,15 +2,15 @@
 //! Charge for the portion inspected before a match or mismatch.
 
 use selectors::attr::{
-    AttrSelectorOperation, AttrSelectorOperator, CaseSensitivity, SELECTOR_WHITESPACE,
+    AttrSelectorOperator, CaseSensitivity, ParsedCaseSensitivity, SELECTOR_WHITESPACE,
 };
 
-use super::limits::SHORT_SCAN;
-use super::{CssString, ElementRef};
+use super::limits::{MatchResult, SHORT_SCAN};
+use super::matching::Matcher;
 
 /// Compare just the common prefix needed to find a mismatch. Record bytes in
 /// small blocks so an early difference in a long value is a cheap comparison.
-pub(super) fn equal_bytes(a: &[u8], b: &[u8], case: CaseSensitivity, scanned: &mut usize) -> bool {
+fn equal_bytes(a: &[u8], b: &[u8], case: CaseSensitivity, scanned: &mut usize) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -26,11 +26,14 @@ pub(super) fn equal_bytes(a: &[u8], b: &[u8], case: CaseSensitivity, scanned: &m
         })
 }
 
-impl ElementRef<'_> {
-    pub(super) fn attribute(&self, name: &str) -> Option<&str> {
-        self.budget.visit(self.shape);
+impl<'tree> Matcher<'tree> {
+    pub(super) fn attribute(
+        &mut self,
+        index: usize,
+        name: &str,
+    ) -> MatchResult<Option<&'tree str>> {
         let mut scanned = 0;
-        let value = self.tree.attribute(self.index, |key| {
+        let value = self.tree.attribute(index, |key| {
             // Visiting a key costs work even if its length rules it out immediately.
             scanned += 1;
             equal_bytes(
@@ -40,36 +43,51 @@ impl ElementRef<'_> {
                 &mut scanned,
             )
         });
-        self.budget.scan_bytes(scanned);
-        value
+        self.budget.scan_bytes(scanned)?;
+        Ok(value)
     }
-    pub(super) fn bytes_equal(&self, actual: &[u8], needle: &[u8], case: CaseSensitivity) -> bool {
+    pub(super) fn bytes_equal(
+        &mut self,
+        actual: &[u8],
+        needle: &[u8],
+        case: CaseSensitivity,
+    ) -> MatchResult<bool> {
         if actual.len() <= SHORT_SCAN {
-            return case.eq(actual, needle);
+            return Ok(case.eq(actual, needle));
         }
         let mut scanned = 0;
         let equal = equal_bytes(actual, needle, case, &mut scanned);
-        self.budget.scan_bytes(scanned);
-        equal
+        self.budget.scan_bytes(scanned)?;
+        Ok(equal)
     }
-    pub(super) fn has_word(&self, actual: &str, word: &str, case: CaseSensitivity) -> bool {
+    pub(super) fn has_word(
+        &mut self,
+        actual: &str,
+        word: &str,
+        case: CaseSensitivity,
+    ) -> MatchResult<bool> {
         if word.is_empty() || word.len() > actual.len() {
-            return false;
+            return Ok(false);
         }
         if actual.len() <= SHORT_SCAN {
-            return AttrSelectorOperator::Includes.eval_str(actual, word, case);
+            return Ok(AttrSelectorOperator::Includes.eval_str(actual, word, case));
         }
         let mut scanned = 0;
         let found = actual.split(SELECTOR_WHITESPACE).any(|part| {
             scanned += part.len() + 1;
             case.eq(part.as_bytes(), word.as_bytes())
         });
-        self.budget.scan_bytes(scanned);
-        found
+        self.budget.scan_bytes(scanned)?;
+        Ok(found)
     }
-    fn has_substring(&self, mut actual: &str, needle: &str, case: CaseSensitivity) -> bool {
+    fn has_substring(
+        &mut self,
+        mut actual: &str,
+        needle: &str,
+        case: CaseSensitivity,
+    ) -> MatchResult<bool> {
         if needle.is_empty() {
-            return false;
+            return Ok(false);
         }
         if case == CaseSensitivity::CaseSensitive || needle.len() <= 32 {
             let offset = if case == CaseSensitivity::CaseSensitive {
@@ -81,8 +99,8 @@ impl ElementRef<'_> {
                     .position(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
             };
             self.budget
-                .scan_bytes(offset.map_or(actual.len(), |i| i + needle.len()));
-            return offset.is_some();
+                .scan_bytes(offset.map_or(actual.len(), |i| i + needle.len()))?;
+            return Ok(offset.is_some());
         }
         // Fold long insensitive needles for linear substring search. Start with
         // a short block for early matches, then overlap by a needle's length.
@@ -93,10 +111,10 @@ impl ElementRef<'_> {
             let end = actual.ceil_char_boundary((advance + needle.len() - 1).min(actual.len()));
             let block = &actual[..end];
             // Lowercasing touches the whole block even if it contains a match.
-            self.budget.scan_bytes(block.len());
+            self.budget.scan_bytes(block.len())?;
             let found = block.to_ascii_lowercase().contains(&folded);
             if found || end == actual.len() {
-                return found;
+                return Ok(found);
             }
             actual = &actual[advance..];
             step = (step * 2).min(4096.max(needle.len()));
@@ -104,37 +122,43 @@ impl ElementRef<'_> {
     }
 
     pub(super) fn matches_attribute_value(
-        &self,
-        actual: &str,
-        operation: &AttrSelectorOperation<&CssString>,
-    ) -> bool {
-        let AttrSelectorOperation::WithValue {
-            operator,
-            case_sensitivity,
-            value,
-        } = operation
-        else {
-            return true;
+        &mut self,
+        index: usize,
+        name: &str,
+        operator: AttrSelectorOperator,
+        needle: &str,
+        parsed_case: ParsedCaseSensitivity,
+    ) -> MatchResult<bool> {
+        let Some(actual) = self.attribute(index, name)? else {
+            return Ok(false);
         };
-        let needle = value.as_ref();
+        let case = match parsed_case {
+            ParsedCaseSensitivity::ExplicitCaseSensitive | ParsedCaseSensitivity::CaseSensitive => {
+                CaseSensitivity::CaseSensitive
+            }
+            ParsedCaseSensitivity::AsciiCaseInsensitive
+            | ParsedCaseSensitivity::AsciiCaseInsensitiveIfInHtmlElementInHtmlDocument => {
+                CaseSensitivity::AsciiCaseInsensitive
+            }
+        };
         if needle.len() > actual.len() {
-            return false;
+            return Ok(false);
         }
         if actual.len() <= SHORT_SCAN {
-            return operation.eval_str(actual);
+            return Ok(operator.eval_str(actual, needle, case));
         }
         use AttrSelectorOperator::{DashMatch, Equal, Includes, Prefix, Substring, Suffix};
         let bytes = actual.as_bytes();
         let n = needle.len();
         let compared = match operator {
-            Includes => return self.has_word(actual, needle, *case_sensitivity),
-            Substring => return self.has_substring(actual, needle, *case_sensitivity),
+            Includes => return self.has_word(actual, needle, case),
+            Substring => return self.has_substring(actual, needle, case),
             Equal => bytes,
             Prefix if n > 0 => &bytes[..n],
             Suffix if n > 0 => &bytes[bytes.len() - n..],
             DashMatch if n == bytes.len() || bytes[n] == b'-' => &bytes[..n],
-            _ => return false,
+            _ => return Ok(false),
         };
-        self.bytes_equal(compared, needle.as_bytes(), *case_sensitivity)
+        self.bytes_equal(compared, needle.as_bytes(), case)
     }
 }
