@@ -124,6 +124,12 @@ Exceeding an HTML or CSS limit raises `astral_html.ResourceLimitError`. A query
 discards matches it found before reaching the limit. Both `ResourceLimitError`
 and `InvalidSelectorError` inherit from `ValueError`.
 
+Servo parses CSS, but its matching callbacks cannot return an error. The
+extension walks the parsed selectors itself so it can propagate a limit error
+with Rust’s `Result`. Builders can choose `panic = "abort"` or `panic = "unwind"`
+and get the same Python exception. On small Python worker stacks, `stacker`
+provides room for recursive selector matching.
+
 Applications processing untrusted pages should also bound response size and
 concurrent parses. The tokenizer reads a start tag and its attributes even
 when the subtree filter later discards it. Peak memory therefore depends on
