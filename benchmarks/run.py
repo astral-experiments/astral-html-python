@@ -129,7 +129,9 @@ def timings(source, selector, counts, min_ms, seed):
         # Timer normally disables GC. Keep it enabled, including for cyclic trees.
         timer = Timer(run, setup=gc.enable)
         gc.collect()
-        # Repeated parses let automatic GC reclaim cycles during the batch.
+        # Start with eight operations so even a slow parse runs repeatedly and
+        # GC can reclaim cycles. Double for faster jobs until the batch spans
+        # the target duration, then time a fresh batch of the same size.
         count = 8
         while timer.timeit(count) < target:
             count *= 2
@@ -150,6 +152,8 @@ def memory(source, mode):
     )
     parse(source)  # Exclude parser initialization and the input from the baseline.
     before = rss_kib()
+    # RSS changes in whole pages. Keeping 64 trees alive makes the increase for
+    # a small document easier to measure before averaging back to one tree.
     documents = [parse(source) for _ in range(64)]
     return {f"astral-html | {mode}": (rss_kib() - before) / len(documents)}
 
@@ -251,6 +255,8 @@ def wcxb_sample(path, groups, seed):
         durations = [0, 0]
         for i in (seed % 2, 1 - seed % 2):
             batch = bodies[i]
+            # Warm each parser on five shuffled pages from this group before
+            # timing, without paying for a second pass over the whole corpus.
             for body in batch[:5]:
                 links(parse(body), ALL_LINKS)
             gc.collect()
@@ -338,6 +344,8 @@ def main():
     ]
     versions = ", ".join(f"{p} {version(p)}" for p in packages)
     print(f"Python {platform.python_version()}, {versions}")
+    # The sample counts trade precision for run time. Use fewer fresh processes
+    # for whole-corpus runs and for RSS runs that hold 64 trees per measurement.
     if args.wcxb:
         run_wcxb(args.wcxb, args.samples or 10, args.check)
         return

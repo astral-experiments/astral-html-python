@@ -161,6 +161,8 @@ def summarize(pairs):
         # Bootstrap whole pairs within each execution order. Pages are a fixed corpus,
         # not independent observations of the performance difference between wheels.
         strata = [list(map(math.log, ratios[i::2])) for i in (0, 1)]
+        # A fixed seed reproduces the interval from saved timings. With 10,000
+        # sorted resamples, dropping 250 from each tail leaves the central 95%.
         rng = random.Random(42)
         boot = sorted(
             math.expm1(sum(sum(rng.choices(s, k=len(s))) for s in strata) / len(ratios))
@@ -191,6 +193,8 @@ def main():
         return
     if args.corpus is None or args.wheels is None:
         cli.error("a corpus and wheel directory are required")
+    # Alternating order needs an even count. Four pairs give the bootstrap
+    # at least two observations to resample for each order.
     if args.pairs < 4 or args.pairs % 2:
         cli.error("--pairs must be even and at least 4, to balance execution order")
 
