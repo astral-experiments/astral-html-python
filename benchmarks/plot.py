@@ -15,7 +15,7 @@ data = json.loads((directory / "filtered-links.json").read_text())
 rows = {(row["fixture"], row["parser"]): row for row in data["measurements"]}
 sites = {"wikipedia": "Wikipedia", "pypi": "PyPI", "github": "GitHub"}
 parsers = {
-    "astral-html": "astral-html-python",
+    "astral-html": "astral-html",
     "selectolax (Lexbor)": "selectolax",
     "lxml": "lxml",
     "Beautiful Soup": "Beautiful Soup",

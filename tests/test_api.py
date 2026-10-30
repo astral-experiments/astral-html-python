@@ -1,7 +1,12 @@
 import sys
+from importlib.metadata import metadata
 
 import pytest
 from astral_html import ResourceLimitError, parse
+
+
+def test_distribution_name() -> None:
+    assert metadata("astral-html")["Name"] == "astral-html"
 
 
 def test_parse_and_traverse() -> None:

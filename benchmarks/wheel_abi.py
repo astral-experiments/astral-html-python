@@ -180,6 +180,12 @@ def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("corpus", nargs="?", type=Path, help="WCXB checkout")
     cli.add_argument("wheels", nargs="?", type=Path, help="wheel directory")
+    cli.add_argument(
+        "--distribution",
+        choices=("astral-html", "astral-html-python"),
+        default="astral-html",
+        help="distribution name used by the wheel source revision",
+    )
     cli.add_argument("--pairs", type=int, default=20)
     action = cli.add_mutually_exclusive_group(required=True)
     action.add_argument("--output", type=Path, help="save raw paired µs/page")
@@ -207,11 +213,12 @@ def main():
         cp = f"cp{sys.version_info.major}{sys.version_info.minor}"
         wheels = []
         hashes = {}
+        wheel_prefix = args.distribution.replace("-", "_")
         for tag in (f"{cp}-{cp}", "cp314-abi3"):
-            matches = list(args.wheels.glob(f"astral_html_python-*-{tag}-*.whl"))
+            matches = list(args.wheels.glob(f"{wheel_prefix}-*-{tag}-*.whl"))
             if len(matches) != 1:
                 cli.error(
-                    f"expected one {tag} astral-html-python wheel, found {matches}"
+                    f"expected one {tag} {args.distribution} wheel, found {matches}"
                 )
             whl = matches[0]
             directory = Path(tmp, whl.name)
