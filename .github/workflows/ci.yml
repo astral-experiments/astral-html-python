@@ -3,6 +3,12 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_call:
+    inputs:
+      disable-cache:
+        description: Disable the shared uv cache
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -11,18 +17,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - &checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - &setup-uv
-        uses: &setup-uv-action astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: &uv-version '0.12.23'
-      - uses: &setup-python-action actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+          version: '0.12.23'
+          # A release build must start without dependencies restored from CI caches.
+          enable-cache: ${{ inputs.disable-cache && 'false' || 'auto' }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.14'
-      - uses: &rust-toolchain dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
         with:
           toolchain: '1.97.0'
       # Build abi3 once so both interpreters exercise the same binary.
@@ -42,7 +48,7 @@ jobs:
   test:
     needs: build
     runs-on: ubuntu-latest
-    strategy: &toolchains
+    strategy:
       matrix:
         include:
           - python: '3.14'
@@ -50,13 +56,17 @@ jobs:
           - python: '3.15'
             rust: stable
     steps:
-      - *checkout
-      - *setup-uv
-      - &setup-python
-        uses: *setup-python-action
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: '0.12.23'
+          enable-cache: ${{ inputs.disable-cache && 'false' || 'auto' }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
-      - uses: *rust-toolchain
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
         with:
           toolchain: ${{ matrix.rust }}
       - name: Install locked test dependencies
@@ -88,12 +98,25 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
-    strategy: *toolchains
+    strategy:
+      matrix:
+        include:
+          - python: '3.14'
+            rust: '1.97.0'
+          - python: '3.15'
+            rust: stable
     steps:
-      - *checkout
-      - *setup-uv
-      - *setup-python
-      - uses: *rust-toolchain
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: '0.12.23'
+          enable-cache: ${{ inputs.disable-cache && 'false' || 'auto' }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067
         with:
           toolchain: ${{ matrix.rust }}
           components: rustfmt, clippy
@@ -108,10 +131,12 @@ jobs:
   zizmor:
     runs-on: ubuntu-latest
     steps:
-      - *checkout
-      - uses: *setup-uv-action
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          version: *uv-version
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: '0.12.23'
           # Leave the shared uv cache to jobs that install project dependencies.
           enable-cache: false
       - name: Install the locked zizmor wheel
