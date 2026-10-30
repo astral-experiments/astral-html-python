@@ -35,6 +35,7 @@ benchmark = [
     "cssselect>=1.5.0,<2",
     "beautifulsoup4>=4.15.0,<5",
 ]
+zizmor = ["zizmor==1.31.1"]
 
 [tool.maturin]
 python-source = "python"
