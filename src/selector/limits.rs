@@ -1,4 +1,6 @@
 //! Resource limits around Servo's infallible selector-matching interface.
+//! The thresholds are heuristics. When tuning them, check both the queries that
+//! must finish and the ones that must stop in `tests/test_selector_robustness.py`.
 
 use std::cell::Cell;
 use std::panic;
@@ -14,14 +16,38 @@ use super::{Css, CssName, ElementRef, SelectorShape};
 #[cfg(panic = "abort")]
 compile_error!("astral-html selector limits require the Rust panic=unwind strategy");
 
+// The floor lets a complex selector run on a small subtree. Above 4,096 nodes,
+// 64 work units per searched node allow several tests per candidate while
+// bounding the repeated walks in a selector such as `:is(.missing ~ i) ~ i`.
 const MIN_WORK_BUDGET: usize = 256 * 1024;
 const WORK_PER_NODE: usize = 64;
+
+// Servo can short-circuit a wide :is() without visiting most of its branches.
+// Charge a visit once per 16 components we cannot observe individually. This
+// keeps a short list's per-visit cost low while still weighting wide lists.
 const COMPONENTS_PER_WORK_UNIT: usize = 16;
+
+// The 8 MiB floor allows repeated comparisons on small pages. A single
+// attribute can exceed that floor, so allow the equivalent of 16 passes over
+// retained strings. This admits a scan of a 9 MiB class while bounding
+// repeated searches for a missing word in that same class.
 const MIN_SCAN_BYTES: usize = 8 * 1024 * 1024;
 const SCAN_PASSES: usize = 16;
+
+// The visit charge covers the first 64 bytes of a scan. Comparing names in
+// blocks of that size makes a first-block mismatch cheap even on a long name.
 pub(super) const SHORT_SCAN: usize = 64;
+
+// Servo 0.41 can retain a 4 KiB Bloom filter per leaf for :has(.x, .y).
+// Clear between candidates after 1,024 identity lookups to reuse filters
+// without keeping them for the whole tree. A sibling walk can cross that
+// threshold before we can clear, so abort past 8,192 lookups since the last clear.
 const RELATIVE_CACHE_BATCH: usize = 1024;
 const RELATIVE_CACHE_LIMIT: usize = 8192;
+
+// Each :nth-child(... of S) can build its own index. Keep indexes for at least
+// 65,536 lookups so small scopes can reuse sibling positions. On larger scopes
+// the batch grows with the node count, regardless of the number of selectors.
 const MIN_NTH_CACHE_BATCH: usize = 64 * 1024;
 
 /// Upper bound for one of Servo 0.41's relative Bloom filter probes.
@@ -129,13 +155,11 @@ pub(super) struct MatchBudget {
 
 impl MatchBudget {
     pub(super) fn new(nodes: usize, string_bytes: usize, can_build_filter: bool) -> Self {
-        // Servo allocates a separate index map for each :nth-child(... of S).
-        // Bound their combined size by the tree, regardless of list width.
+        // Eight lookups per node allow several positional tests. The hard
+        // limit of two batches leaves room to finish a candidate before clearing.
         let nth_batch = nodes.saturating_mul(8).max(MIN_NTH_CACHE_BATCH);
         Self {
-            // Budget linear scans and allow some complex queries on small trees.
             work_left: Cell::new(nodes.saturating_mul(WORK_PER_NODE).max(MIN_WORK_BUDGET)),
-            // Even a single node may need to scan most of the retained strings.
             scan_bytes_left: Cell::new(
                 string_bytes.saturating_mul(SCAN_PASSES).max(MIN_SCAN_BYTES),
             ),
@@ -175,8 +199,6 @@ impl MatchBudget {
 
     #[inline]
     pub(super) fn start_element(&self, caches: &mut SelectorCaches) {
-        // Servo 0.41 can cache a 4 KiB Bloom filter per leaf for two :has()
-        // alternatives. Keep the two types of cache on independent budgets.
         if self.relative_cache.rotate() {
             caches.relative_selector_filter_map = Default::default();
             caches.relative_selector = Default::default();
