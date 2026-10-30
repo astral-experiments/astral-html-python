@@ -14,10 +14,14 @@ mod limits;
 mod matching;
 use matching::Matcher;
 
-// Matching recurses both across combinators and into selector functions. HTML's
-// nesting limit cannot protect shallow trees with long sibling selectors.
+// Even on a flat tree, a chain of sibling combinators recurses once per
+// compound. Count nested selector lists toward the same 128-compound limit.
 const MAX_MATCH_DEPTH: usize = 128;
+// Parsing recurses into CSS blocks before we can count compounds. The small
+// worker stack tests exercise 32 nested functions and rejection of the 33rd.
 const MAX_BLOCK_DEPTH: u8 = 32;
+// A flat comma-separated list can fit both depth limits and still allocate
+// a selector for every item. The 256 KiB input cap bounds that parsing work.
 pub(crate) const MAX_SELECTOR_BYTES: usize = 256 * 1024;
 pub(crate) const SELECTOR_SIZE_ERROR: &str = "CSS selector exceeds the 256 KiB input limit";
 
@@ -25,6 +29,8 @@ pub(crate) const SELECTOR_SIZE_ERROR: &str = "CSS selector exceeds the 256 KiB i
 /// Rename the function so Servo rejects it at the right forgiving-list boundary.
 /// This scan also bounds nesting before Servo parses selector functions.
 fn prepare_selector(css: &str) -> Result<Cow<'_, str>, String> {
+    // Every block needs an opening byte. Without a function or parenthesis,
+    // a string of at most MAX_BLOCK_DEPTH bytes cannot need the nesting check.
     if !css.contains('(')
         && (css.len() <= usize::from(MAX_BLOCK_DEPTH) || !css.contains(['[', '{']))
     {
@@ -123,8 +129,9 @@ pub fn select(
     css: &str,
     first: bool,
 ) -> Result<Vec<usize>, SelectError> {
-    // Small Python worker stacks need room for recursive selector matching,
-    // including parsing and dropping nested selector lists.
+    // Reuse the caller's stack when at least 1 MiB remains. Otherwise request
+    // 2 MiB so parsing, matching and dropping nested selectors have headroom
+    // even on the small Python worker stacks in test_selector_robustness.py.
     stacker::maybe_grow(1024 * 1024, 2 * 1024 * 1024, || {
         select_with_stack(tree, root, css, first)
     })
@@ -201,6 +208,7 @@ impl ToCss for CssName {
 }
 impl PrecomputedHash for CssName {
     fn precomputed_hash(&self) -> u32 {
+        // The offset basis and prime come from the 32-bit FNV-1a hash.
         self.value.bytes().fold(2_166_136_261, |hash, byte| {
             (hash ^ u32::from(byte)).wrapping_mul(16_777_619)
         })

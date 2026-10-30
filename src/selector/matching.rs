@@ -337,6 +337,8 @@ impl<'tree> Matcher<'tree> {
         }
 
         let rank = self.nth_rank(data, selectors, index, anchor)?;
+        // We clear indexes between candidates. A second batch leaves room for
+        // a sibling walk that crosses the threshold before the next clear.
         if self.nth_inserts >= self.nth_batch.saturating_mul(2) {
             return Err("CSS selector exceeded the nth-index cache limit");
         }

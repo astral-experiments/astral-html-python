@@ -54,7 +54,8 @@ def exercise_stack_limits() -> None:
             html = "<main>" + "<i></i>" * (count - 1) + "<x></x></main>"
             check(selector, expected, html)
 
-    # :has() recurses through the tree as well as through the selector.
+    # main, the implicit :has() anchor, and x use three of the 128 compounds.
+    # Each :is() wrapper takes one more away from the chain we can match here.
     for wrappers in (0, 31):
         depth = 125 - wrappers
         doc = parse("<main>" + "<div>" * 254 + "<i></i>" * depth + "<x></x>")
@@ -266,8 +267,10 @@ def test_nth_index_cache_rotation_preserves_matches() -> None:
 @pytest.mark.parametrize(
     ("fragment", "count", "selector", "max_mib"),
     [
-        # Unbounded relative Bloom filters used 65 MiB; unbounded nth indexes
-        # used 57 MiB. Short sibling groups avoid quadratic debug assertions.
+        # The old unbounded caches added 65 MiB for :has() and 57 MiB for nth
+        # indexes. The 24 and 48 MiB ceilings leave room for allocator variation
+        # while catching that growth. Short sibling groups grow the caches
+        # without needing long sibling walks.
         ("<i></i>", 16_000, "i:has(.x, .y)", 24),
         (
             "<p>" + "<i></i>" * 4 + "</p>",

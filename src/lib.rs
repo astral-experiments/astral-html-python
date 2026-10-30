@@ -134,9 +134,10 @@ fn bounded_utf8<'a>(
     // Small inputs fit at four bytes per character. For large strings near
     // the limit, str.isascii() is constant time and bypasses subclass methods.
     if chars > limit / 4 && !str_type.call_method1(c"isascii", (value,))?.is_truthy()? {
-        // Size bounded slices without populating the input's UTF-8 cache.
-        // surrogatepass counts unpaired surrogates here; the final strict
-        // conversion still reports them against the original string.
+        // Process up to 8,192 characters per Python call. Each encoded slice
+        // fits in 32 KiB and leaves the input's UTF-8 cache untouched.
+        // surrogatepass counts unpaired surrogates here. The strict conversion
+        // below still reports their positions in the original string.
         let mut start = 0;
         let mut bytes = 0;
         while bytes + (chars - start) * 4 > limit {

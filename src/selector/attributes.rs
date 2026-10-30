@@ -89,6 +89,9 @@ impl<'tree> Matcher<'tree> {
         if needle.is_empty() {
             return Ok(false);
         }
+        // For an insensitive search, comparing up to 32 bytes per offset avoids
+        // allocating a lowercase copy. With a longer needle, a shared prefix
+        // could make us compare the same bytes many times.
         if case == CaseSensitivity::CaseSensitive || needle.len() <= 32 {
             let offset = if case == CaseSensitivity::CaseSensitive {
                 actual.find(needle)
@@ -102,8 +105,8 @@ impl<'tree> Matcher<'tree> {
                 .scan_bytes(offset.map_or(actual.len(), |i| i + needle.len()))?;
             return Ok(offset.is_some());
         }
-        // Fold long insensitive needles for linear substring search. Start with
-        // a short block for early matches, then overlap by a needle's length.
+        // Start small for early matches. Overlap adjacent blocks by at least
+        // needle.len() - 1 bytes so matches that cross a boundary are visible.
         let folded = needle.to_ascii_lowercase();
         let mut step = SHORT_SCAN.max(needle.len());
         loop {
@@ -117,6 +120,8 @@ impl<'tree> Matcher<'tree> {
                 return Ok(found);
             }
             actual = &actual[advance..];
+            // Double the advance on misses to amortize allocations. Cap it at
+            // 4 KiB to bound each lowercase copy, or one needle if that's larger.
             step = (step * 2).min(4096.max(needle.len()));
         }
     }

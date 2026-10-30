@@ -58,6 +58,8 @@ struct Open<'a> {
 
 impl Tree {
     pub fn parse(source: &str, tags: Option<&HashSet<String>>) -> Result<Self, &'static str> {
+        // Use astral-html's defaults for input bytes, retained nodes and open
+        // elements. Even discarded subtrees consume input and stack entries.
         let limits = Limits::default();
         if source.len() > limits.max_input_bytes {
             return Err(INPUT_SIZE_ERROR);
@@ -67,6 +69,8 @@ impl Tree {
             .filter(|tags| tags.len() == 1)
             .and_then(|tags| tags.iter().next());
         let mut tree = Self {
+            // Reserve 16 slots for a short fragment. Input bytes predict node
+            // count poorly when most of a page is text or will be discarded.
             nodes: Vec::with_capacity(16),
             attributes: Vec::new(),
             strings: String::new(),
@@ -79,8 +83,9 @@ impl Tree {
             start..u32::try_from(tree.strings.len()).expect("bounded by the HTML input limit")
         };
         let mut stack: Vec<Open<'_>> = Vec::new();
-        // Like astral_html::Document, index a deep stack only when an end tag
-        // mismatches the top. Repeated unmatched tags then need one lookup each.
+        // Match astral_html::Document's cutoff. Up to eight open names can be
+        // scanned without allocating an index. On a deeper stack, the first
+        // mismatch builds the index so repeated stray end tags cost one lookup each.
         let mut open_names: Option<HashMap<Cow<'_, str>, usize>> = None;
         // Roots are siblings in the retained tree even when their discarded parents differ.
         let mut last_root = None;
