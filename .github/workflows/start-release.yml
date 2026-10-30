@@ -11,12 +11,15 @@ on:
 permissions:
   contents: read
 
+env:
+  # Explicit installs use the Python archive hashes embedded in the pinned uv binary.
+  UV_PYTHON_DOWNLOADS: manual
+  UV_MANAGED_PYTHON: 'true'
+
 jobs:
   ci:
     if: github.repository == 'astral-experiments/astral-html-python' && github.ref == 'refs/heads/main'
     uses: $/.github/workflows/ci.yml
-    with:
-      disable-cache: true
 
   prepare:
     needs: ci
@@ -32,8 +35,10 @@ jobs:
           path: dist
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: '0.12.23'
+          version: '0.13.6'
+          checksum: f29c3e94ffabd7e6f3ba521dba169a9b7ec12100bf3257087f0f24f6123f3645
           enable-cache: false
+      - run: uv python install 3.14.10
       - name: Select the tested sdist and its changelog entry
         env:
           VERSION: ${{ inputs.version }}
@@ -57,7 +62,7 @@ jobs:
           fi
           mv "${sdists[0]}" release/
           printf 'v%s\n' "$VERSION" > release/tag
-          uv run --locked --only-group dev --python 3.14 python - <<'PY' > release/prerelease
+          uv run --locked --no-build --only-group dev --python 3.14.10 python - <<'PY' > release/prerelease
           import os
           from packaging.version import Version
 
