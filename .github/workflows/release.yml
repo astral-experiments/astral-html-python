@@ -3,17 +3,13 @@ name: Start release
 on:
   # Keep publishing in the dispatch that tested the sdist to avoid trusting artifacts from another run.
   workflow_dispatch:
-    inputs:
-      version:
-        description: Version to publish from main, without the leading v
-        required: true
-        type: string
 
 permissions: {}
 
 concurrency:
   group: publish-release
-  cancel-in-progress: false
+  # Keep pending releases when another maintainer dispatches a newer version.
+  queue: max
 
 env:
   # Explicit installs use the Python archive hashes embedded in the pinned uv binary.
@@ -51,33 +47,32 @@ jobs:
           enable-cache: false
       - run: uv python install 3.14.10
       - name: Select the tested sdist and its changelog entry
-        env:
-          VERSION: ${{ inputs.version }}
         run: |
+          version=$(uv version --short)
           sdists=(dist/*.tar.gz)
-          if [[ ${#sdists[@]} != 1 || ${sdists[0]} != "dist/astral_html-$VERSION.tar.gz" ]]; then
-            echo "::error::Requested version $VERSION does not match the built sdist"
+          if [[ ${#sdists[@]} != 1 || ${sdists[0]} != "dist/astral_html-$version.tar.gz" ]]; then
+            echo "::error::Project version $version does not match the built sdist"
             exit 1
           fi
-          if git show-ref --verify --quiet "refs/tags/v$VERSION"; then
-            test "$(git rev-parse "refs/tags/v$VERSION^{commit}")" = "$GITHUB_SHA"
+          if git show-ref --verify --quiet "refs/tags/v$version"; then
+            test "$(git rev-parse "refs/tags/v$version^{commit}")" = "$GITHUB_SHA"
           fi
           mkdir release
-          awk -v heading="## $VERSION" '
+          awk -v heading="## $version" '
             /^## / { selected = ($0 == heading); next }
             selected { print }
           ' CHANGELOG.md > release/notes.md
           if ! grep -q '[^[:space:]]' release/notes.md; then
-            echo "::error::Missing changelog entry for $VERSION"
+            echo "::error::Missing changelog entry for $version"
             exit 1
           fi
           mv "${sdists[0]}" release/
-          printf 'v%s\n' "$VERSION" > release/tag
-          uv run --locked --no-build --only-group dev --python 3.14.10 python - <<'PY' > release/prerelease
-          import os
+          printf 'v%s\n' "$version" > release/tag
+          uv run --locked --no-build --only-group dev --python 3.14.10 python - "$version" <<'PY' > release/prerelease
+          import sys
           from packaging.version import Version
 
-          print(str(Version(os.environ["VERSION"]).is_prerelease).lower())
+          print(str(Version(sys.argv[1]).is_prerelease).lower())
           PY
       - id: upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
