@@ -44,4 +44,5 @@ The `-I` flag prevents Python from adding the checkout to the import path.
 
 For a release, update the version in `pyproject.toml` and `Cargo.toml`, refresh
 both lockfiles, and add a matching entry to [CHANGELOG.md](../CHANGELOG.md).
-After merging, run **Start release** on `main` with that version.
+After merging, run **Start release** on `main`. It publishes the version from
+the commit selected at dispatch, even if another change merges during CI.
