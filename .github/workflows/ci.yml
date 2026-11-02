@@ -35,6 +35,7 @@ jobs:
           UV_REQUIRE_HASHES: 'true'
         run: |
           dist="$RUNNER_TEMP/dist"
+          bash .github/prepare-pypi-readme.sh
           uv build --sdist --no-sources --out-dir "$dist" --python 3.14
           uv build "$dist"/*.tar.gz --wheel --no-sources --out-dir "$dist" --python 3.14 \
             --config-setting 'build-args=--compatibility pypi --auditwheel check --features abi3'
