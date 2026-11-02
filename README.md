@@ -6,6 +6,8 @@
 
 ---
 
+[![PyPI version](https://img.shields.io/pypi/v/astral-html.svg)](https://pypi.org/project/astral-html/)
+
 A very fast HTML parser with CSS selectors for Python web scrapers. It’s written
 in Rust and uses the [astral-html tokenizer crate](https://github.com/astral-sh/astral-html).
 
