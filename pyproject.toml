@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "astral-html"
-version = "0.0.1"
+version = "0.0.2"
 description = "A Rust-backed HTML parser and CSS selector engine for Python"
 requires-python = ">=3.14"
 license = "MIT OR Apache-2.0"
