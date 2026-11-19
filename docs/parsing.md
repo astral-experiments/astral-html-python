@@ -127,8 +127,11 @@ and `InvalidSelectorError` inherit from `ValueError`.
 Servo parses CSS, but its matching callbacks cannot return an error. The
 extension walks the parsed selectors itself so it can propagate a limit error
 with Rust’s `Result`. Builders can choose `panic = "abort"` or `panic = "unwind"`
-and get the same Python exception. On small Python worker stacks, `stacker`
-provides room for recursive selector matching.
+and get the same Python exception.
+
+CSS parsing and matching recurse on the calling thread's stack. Avoid shrinking
+Python worker stacks: on a 64 KiB stack, a selector within the depth limits
+can still overflow the stack and crash Python.
 
 Applications processing untrusted pages should also bound response size and
 concurrent parses. The tokenizer reads a start tag and its attributes even

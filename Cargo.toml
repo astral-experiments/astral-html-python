@@ -1,6 +1,6 @@
 [package]
 name = "astral-html-python"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 rust-version = "1.97"
 description = "A Rust-backed HTML parser and CSS selector engine for Python"
@@ -35,7 +35,6 @@ pyo3 = "0.29"
 selectors = "0.41"
 cssparser = "0.38"
 precomputed-hash = "0.1"
-stacker = "0.1.25"
 
 [profile.release]
 lto = "thin"

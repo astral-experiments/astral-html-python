@@ -129,22 +129,6 @@ pub fn select(
     css: &str,
     first: bool,
 ) -> Result<Vec<usize>, SelectError> {
-    // Reuse the caller's stack when at least 1 MiB remains. Otherwise request
-    // 2 MiB so parsing, matching and dropping nested selectors have headroom
-    // even on the small Python worker stacks in test_selector_robustness.py.
-    stacker::maybe_grow(1024 * 1024, 2 * 1024 * 1024, || {
-        select_with_stack(tree, root, css, first)
-    })
-}
-
-// Keep the matcher's frame inside the guarded closure even under optimization.
-#[inline(never)]
-fn select_with_stack(
-    tree: &Tree,
-    root: Option<usize>,
-    css: &str,
-    first: bool,
-) -> Result<Vec<usize>, SelectError> {
     if css.len() > MAX_SELECTOR_BYTES {
         return Err(SelectError::ResourceLimit(SELECTOR_SIZE_ERROR.to_owned()));
     }
