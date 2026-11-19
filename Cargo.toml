@@ -35,7 +35,6 @@ pyo3 = "0.29"
 selectors = "0.41"
 cssparser = "0.38"
 precomputed-hash = "0.1"
-stacker = "0.1.25"
 
 [profile.release]
 lto = "thin"

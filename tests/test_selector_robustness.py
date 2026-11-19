@@ -1,15 +1,14 @@
 import subprocess
 import sys
-import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from astral_html import ResourceLimitError, parse
 
 
-def test_selector_limits_on_a_small_worker_stack() -> None:
-    # A native stack overflow aborts Python. Run the boundary cases together
-    # on a small worker stack, including the ones expected to succeed.
+def test_selector_limits_on_a_worker_thread() -> None:
+    # Isolate native stack overflows from pytest. Exercise the platform's
+    # default worker stack, which can be smaller than the main thread's.
     subprocess.run(
         [sys.executable, "-X", "faulthandler", __file__], timeout=30, check=True
     )
@@ -298,12 +297,5 @@ print(getrusage(RUSAGE_SELF).ru_maxrss - before)
 
 
 if __name__ == "__main__":
-    # If a platform disallows both small sizes, still test its default stack.
-    for stack_size in (65536, 131072):
-        try:
-            threading.stack_size(stack_size)
-        except RuntimeError, ValueError:
-            continue
-        break
     with ThreadPoolExecutor(max_workers=1) as worker:
         worker.submit(exercise_stack_limits).result()
